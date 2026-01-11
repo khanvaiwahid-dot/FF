@@ -676,6 +676,277 @@ async def receive_sms(message: SMSMessage):
     
     return {"message": "SMS received and processed"}
 
+# ===== Admin Package Management =====
+@api_router.get("/admin/packages", response_model=List[Package])
+async def admin_list_packages(user_data: dict = Depends(get_current_admin)):
+    packages = await db.packages.find({}, {"_id": 0}).sort("sort_order", 1).to_list(100)
+    return packages
+
+@api_router.post("/admin/packages")
+async def admin_create_package(request: CreatePackageRequest, user_data: dict = Depends(get_current_admin)):
+    # Get max sort_order
+    max_package = await db.packages.find_one({}, {"_id": 0, "sort_order": 1}, sort=[("sort_order", -1)])
+    next_sort = (max_package.get("sort_order", 0) + 1) if max_package else 1
+    
+    package_doc = {
+        "id": str(uuid.uuid4()),
+        "name": request.name,
+        "type": request.type,
+        "amount": request.amount,
+        "price": request.price,
+        "active": request.active,
+        "sort_order": next_sort,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.packages.insert_one(package_doc)
+    
+    # Log action
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "create_package",
+        "target_id": package_doc["id"],
+        "details": f"Created package: {request.name}",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return package_doc
+
+@api_router.put("/admin/packages/{package_id}")
+async def admin_update_package(package_id: str, request: UpdatePackageRequest, user_data: dict = Depends(get_current_admin)):
+    package = await db.packages.find_one({"id": package_id}, {"_id": 0})
+    if not package:
+        raise HTTPException(status_code=404, detail="Package not found")
+    
+    update_data = {k: v for k, v in request.dict().items() if v is not None}
+    if update_data:
+        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.packages.update_one({"id": package_id}, {"$set": update_data})
+        
+        # Log action
+        await db.admin_actions.insert_one({
+            "id": str(uuid.uuid4()),
+            "admin_id": user_data["user_id"],
+            "action_type": "update_package",
+            "target_id": package_id,
+            "details": f"Updated package: {package['name']}",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+    
+    return {"message": "Package updated"}
+
+@api_router.delete("/admin/packages/{package_id}")
+async def admin_delete_package(package_id: str, user_data: dict = Depends(get_current_admin)):
+    package = await db.packages.find_one({"id": package_id}, {"_id": 0})
+    if not package:
+        raise HTTPException(status_code=404, detail="Package not found")
+    
+    await db.packages.delete_one({"id": package_id})
+    
+    # Log action
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "delete_package",
+        "target_id": package_id,
+        "details": f"Deleted package: {package['name']}",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "Package deleted"}
+
+# ===== Admin Garena Accounts Management =====
+@api_router.get("/admin/garena-accounts")
+async def admin_list_garena_accounts(user_data: dict = Depends(get_current_admin)):
+    accounts = await db.garena_accounts.find({}, {"_id": 0}).to_list(100)
+    # Don't send actual passwords/pins
+    for account in accounts:
+        account["password"] = "***hidden***"
+        account["pin"] = "***hidden***"
+    return accounts
+
+@api_router.post("/admin/garena-accounts")
+async def admin_create_garena_account(request: CreateGarenaAccountRequest, user_data: dict = Depends(get_current_admin)):
+    account_doc = {
+        "id": str(uuid.uuid4()),
+        "name": request.name,
+        "email": request.email,
+        "password": encrypt_data(request.password),
+        "pin": encrypt_data(request.pin),
+        "active": True,
+        "last_used": None,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.garena_accounts.insert_one(account_doc)
+    
+    # Log action
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "create_garena_account",
+        "target_id": account_doc["id"],
+        "details": f"Created Garena account: {request.name}",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "Garena account created", "id": account_doc["id"]}
+
+@api_router.put("/admin/garena-accounts/{account_id}")
+async def admin_update_garena_account(account_id: str, request: UpdateGarenaAccountRequest, user_data: dict = Depends(get_current_admin)):
+    account = await db.garena_accounts.find_one({"id": account_id}, {"_id": 0})
+    if not account:
+        raise HTTPException(status_code=404, detail="Garena account not found")
+    
+    update_data = {}
+    if request.name:
+        update_data["name"] = request.name
+    if request.email:
+        update_data["email"] = request.email
+    if request.password:
+        update_data["password"] = encrypt_data(request.password)
+    if request.pin:
+        update_data["pin"] = encrypt_data(request.pin)
+    if request.active is not None:
+        update_data["active"] = request.active
+    
+    if update_data:
+        await db.garena_accounts.update_one({"id": account_id}, {"$set": update_data})
+        
+        # Log action
+        await db.admin_actions.insert_one({
+            "id": str(uuid.uuid4()),
+            "admin_id": user_data["user_id"],
+            "action_type": "update_garena_account",
+            "target_id": account_id,
+            "details": f"Updated Garena account: {account['name']}",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+    
+    return {"message": "Garena account updated"}
+
+@api_router.delete("/admin/garena-accounts/{account_id}")
+async def admin_delete_garena_account(account_id: str, user_data: dict = Depends(get_current_admin)):
+    account = await db.garena_accounts.find_one({"id": account_id}, {"_id": 0})
+    if not account:
+        raise HTTPException(status_code=404, detail="Garena account not found")
+    
+    await db.garena_accounts.delete_one({"id": account_id})
+    
+    # Log action
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "delete_garena_account",
+        "target_id": account_id,
+        "details": f"Deleted Garena account: {account['name']}",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "Garena account deleted"}
+
+# ===== Admin User Management =====
+@api_router.get("/admin/users")
+async def admin_list_users(user_data: dict = Depends(get_current_admin)):
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    return users
+
+@api_router.post("/admin/users")
+async def admin_create_user(request: CreateUserRequest, user_data: dict = Depends(get_current_admin)):
+    # Check if username exists
+    existing = await db.users.find_one({"username": request.username})
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    user_id = str(uuid.uuid4())
+    user_doc = {
+        "id": user_id,
+        "username": request.username,
+        "email": request.email,
+        "phone": request.phone,
+        "password_hash": hash_password(request.password),
+        "wallet_balance": 0.0,
+        "blocked": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.users.insert_one(user_doc)
+    
+    # Log action
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "create_user",
+        "target_id": user_id,
+        "details": f"Created user: {request.username}",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "User created", "user_id": user_id}
+
+@api_router.put("/admin/users/{user_id}")
+async def admin_update_user(user_id: str, request: UpdateUserRequest, user_data: dict = Depends(get_current_admin)):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    update_data = {}
+    if request.blocked is not None:
+        update_data["blocked"] = request.blocked
+    if request.password:
+        update_data["password_hash"] = hash_password(request.password)
+    
+    if update_data:
+        await db.users.update_one({"id": user_id}, {"$set": update_data})
+        
+        # Log action
+        action_detail = f"Updated user {user['username']}: "
+        if request.blocked is not None:
+            action_detail += f"blocked={request.blocked} "
+        if request.password:
+            action_detail += "password reset"
+            
+        await db.admin_actions.insert_one({
+            "id": str(uuid.uuid4()),
+            "admin_id": user_data["user_id"],
+            "action_type": "update_user",
+            "target_id": user_id,
+            "details": action_detail,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+    
+    return {"message": "User updated"}
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, user_data: dict = Depends(get_current_admin)):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Soft delete - mark as blocked and deleted
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {
+            "blocked": True,
+            "deleted": True,
+            "deleted_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Log action
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "delete_user",
+        "target_id": user_id,
+        "details": f"Deleted user: {user['username']}",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "User deleted"}
+
 # ===== Queue & Automation =====
 queue_lock = asyncio.Lock()
 processing_orders = set()
