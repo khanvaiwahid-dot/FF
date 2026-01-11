@@ -24,6 +24,21 @@ db = client[os.environ['DB_NAME']]
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
+from cryptography.fernet import Fernet
+import base64
+
+# Generate or load encryption key (should be in env in production)
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", Fernet.generate_key().decode())
+cipher_suite = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
+
+def encrypt_data(data: str) -> str:
+    """Encrypt sensitive data"""
+    return cipher_suite.encrypt(data.encode()).decode()
+
+def decrypt_data(encrypted_data: str) -> str:
+    """Decrypt sensitive data"""
+    return cipher_suite.decrypt(encrypted_data.encode()).decode()
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
