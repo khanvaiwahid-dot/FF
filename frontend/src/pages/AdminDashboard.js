@@ -16,7 +16,9 @@ import {
   Inbox,
   CheckCircle,
   XCircle,
-  Clock
+  Clock,
+  Shield,
+  Users
 } from 'lucide-react';
 
 const AdminDashboard = () => {
