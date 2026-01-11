@@ -484,19 +484,22 @@ async def create_order(request: CreateOrderRequest, user_data: dict = Depends(ge
     order_id = str(uuid.uuid4())
     wallet_used = 0.0
     locked_price = package["price"]  # Lock price at order time
-    payment_amount = locked_price
+    exact_payment = locked_price
     status = "pending_payment"
     
     # Check if wallet can cover partially or fully
     if user["wallet_balance"] > 0:
         if user["wallet_balance"] >= locked_price:
             wallet_used = locked_price
-            payment_amount = 0.0
+            exact_payment = 0.0
             status = "wallet_fully_paid"
         else:
             wallet_used = user["wallet_balance"]
-            payment_amount = locked_price - wallet_used
+            exact_payment = locked_price - wallet_used
             status = "wallet_partial_paid"
+    
+    # Round up payment amount to clean number (never ask for odd decimals)
+    payment_amount = round_up_payment(exact_payment) if exact_payment > 0 else 0.0
     
     order_doc = {
         "id": order_id,
@@ -510,13 +513,15 @@ async def create_order(request: CreateOrderRequest, user_data: dict = Depends(ge
         "amount": package["amount"],
         "locked_price": locked_price,  # Price locked at purchase time
         "wallet_used": wallet_used,
-        "payment_amount": payment_amount,
+        "exact_payment_required": exact_payment,  # Exact amount needed
+        "payment_amount": payment_amount,  # Rounded up amount to pay
         "payment_last3digits": None,
         "payment_method": None,
         "payment_remark": None,
         "payment_screenshot": None,
         "payment_rrn": None,
         "raw_message": None,
+        "overpayment_credited": 0.0,  # Track overpayment credited to wallet
         "status": status,
         "automation_state": None,
         "retry_count": 0,
