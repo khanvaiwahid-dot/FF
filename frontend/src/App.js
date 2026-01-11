@@ -22,6 +22,7 @@ import AdminPayments from './pages/AdminPayments';
 import AdminProducts from './pages/admin/AdminProducts';
 import AdminGarenaAccounts from './pages/admin/AdminGarenaAccounts';
 import AdminUsers from './pages/admin/AdminUsers';
+import UserOrders from './pages/UserOrders';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -107,6 +108,7 @@ function App() {
           <Route path="/payment-details/:orderId" element={<ProtectedRoute><PaymentDetails /></ProtectedRoute>} />
           <Route path="/order/:orderId" element={<ProtectedRoute><OrderStatus /></ProtectedRoute>} />
           <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
+          <Route path="/orders" element={<ProtectedRoute><UserOrders /></ProtectedRoute>} />
           <Route path="/wallet/add-funds" element={<ProtectedRoute><WalletAddFunds /></ProtectedRoute>} />
           <Route path="/wallet/payment-details" element={<ProtectedRoute><WalletPaymentDetails /></ProtectedRoute>} />
           <Route path="/admin/dashboard" element={<ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>} />
