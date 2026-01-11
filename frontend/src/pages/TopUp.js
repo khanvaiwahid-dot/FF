@@ -150,11 +150,14 @@ const TopUp = () => {
               id="playerUID"
               data-testid="player-uid-input"
               type="text"
-              placeholder="Enter your Player UID"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              placeholder="Enter your 8+ digit Player UID"
               value={playerUID}
-              onChange={(e) => setPlayerUID(e.target.value)}
+              onChange={(e) => setPlayerUID(e.target.value.replace(/\D/g, ''))}
               className="border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary rounded-xl h-12"
             />
+            <p className="text-xs text-gray-500">Minimum 8 digits, numbers only</p>
           </div>
 
           <div className="space-y-2">
