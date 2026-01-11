@@ -668,18 +668,52 @@ async def process_order(order_id: str):
         processing_orders.discard(order_id)
 
 async def run_automation(order: dict) -> bool:
-    """Run Playwright automation for Garena top-up"""
+    """Run Playwright automation for Garena top-up with stealth mode"""
     from playwright.async_api import async_playwright
+    from playwright_stealth import stealth_async
+    import random
     
     GARENA_EMAIL = "thenexkshetriempire01@gmail.com"
     GARENA_PASSWORD = "Theone164@"
     SECURITY_PIN = "164164"
     
+    async def human_delay(min_ms=500, max_ms=2000):
+        """Add random human-like delay"""
+        await asyncio.sleep(random.uniform(min_ms/1000, max_ms/1000))
+    
+    async def human_type(element, text):
+        """Type text with human-like delays"""
+        for char in text:
+            await element.type(char)
+            await asyncio.sleep(random.uniform(0.05, 0.15))
+    
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False)  # headed mode for visibility
-            context = await browser.new_context()
+            # Launch with stealth settings
+            browser = await p.chromium.launch(
+                headless=False,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-web-security',
+                    '--disable-features=IsolateOrigins,site-per-process'
+                ]
+            )
+            
+            # Create context with realistic settings
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                locale='en-US',
+                timezone_id='Asia/Kuala_Lumpur'
+            )
+            
             page = await context.new_page()
+            
+            # Apply stealth mode
+            await stealth_async(page)
             
             logging.info(f"Starting automation for order {order['id']}")
             
