@@ -297,7 +297,7 @@ const UserOrders = () => {
                   </div>
                   <div className="text-right flex items-center gap-2">
                     <div>
-                      <p className="text-lg font-bold text-gray-900">₹{order.price_at_purchase?.toFixed(2) || order.price?.toFixed(2)}</p>
+                      <p className="text-lg font-bold text-gray-900">₹{order.locked_price?.toFixed(2) || order.price?.toFixed(2) || '0.00'}</p>
                       <p className="text-xs text-gray-500">{formatDate(order.created_at)}</p>
                     </div>
                     <ChevronRight className="w-5 h-5 text-gray-400" />
