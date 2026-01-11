@@ -286,10 +286,21 @@ def parse_sms_message(raw_message: str) -> dict:
     if amount_match:
         result["amount"] = float(amount_match.group(1).replace(',', ''))
     
-    # Extract last 3 digits (900****910)
-    phone_match = re.search(r'\d+\*+([0-9]{3})', raw_message)
-    if phone_match:
-        result["last3digits"] = phone_match.group(1)
+    # Extract last 3 digits - multiple patterns:
+    # Pattern 1: 900****910 (digits, asterisks, 3 digits)
+    # Pattern 2: 98XXXXX910 (digits, X's, 3 digits)
+    # Pattern 3: XXX****910 (X's, asterisks, 3 digits)
+    # Pattern 4: ***910 (asterisks, 3 digits at end)
+    phone_patterns = [
+        r'\d+[\*X]+(\d{3})\b',  # digits + asterisks/X + 3 digits
+        r'[X\*]+(\d{3})\b',     # just asterisks/X + 3 digits
+        r'from\s+\S*?(\d{3})\s+for',  # "from xxx910 for"
+    ]
+    for pattern in phone_patterns:
+        phone_match = re.search(pattern, raw_message, re.IGNORECASE)
+        if phone_match:
+            result["last3digits"] = phone_match.group(1)
+            break
     
     # Extract RRN
     rrn_match = re.search(r'RRN\s*[:\-]?\s*([A-Za-z0-9]+)', raw_message, re.IGNORECASE)
