@@ -715,7 +715,295 @@ async def run_automation(order: dict) -> bool:
             # Apply stealth mode
             await stealth_async(page)
             
-            logging.info(f"Starting automation for order {order['id']}")
+            logging.info(f"Starting stealth automation for order {order['id']}")
+            
+            # STEP 1: Open Garena Shop
+            await db.orders.update_one(
+                {"id": order["id"]},
+                {"$set": {"automation_state": "OPEN_SITE"}}
+            )
+            logging.info("Step 1: Opening Garena shop")
+            await page.goto("https://shop.garena.my/", wait_until="domcontentloaded", timeout=30000)
+            await human_delay(2000, 4000)
+            
+            # STEP 2: Select Free Fire
+            logging.info("Step 2: Selecting Free Fire")
+            try:
+                freefire_selector = await page.wait_for_selector('text="Free Fire"', timeout=15000)
+                await human_delay(500, 1500)
+                await freefire_selector.click()
+                await human_delay(2000, 4000)
+            except Exception as e:
+                logging.error(f"Could not find Free Fire: {e}")
+                await browser.close()
+                return False
+            
+            # STEP 3: Insert Player UID
+            await db.orders.update_one(
+                {"id": order["id"]},
+                {"$set": {"automation_state": "INPUT_UID"}}
+            )
+            logging.info(f"Step 3: Inserting Player UID: {order['player_uid']}")
+            try:
+                uid_input = await page.wait_for_selector('input[placeholder*="player ID"]', timeout=15000)
+                await human_delay(500, 1000)
+                await human_type(uid_input, order["player_uid"])
+                await human_delay(1000, 2000)
+            except Exception as e:
+                logging.error(f"Could not find UID input: {e}")
+                await browser.close()
+                return False
+            
+            # STEP 4: Click Redeem Tab
+            logging.info("Step 4: Clicking Redeem tab")
+            try:
+                redeem_btn = await page.wait_for_selector('button:has-text("Redeem")', timeout=15000)
+                await human_delay(500, 1500)
+                await redeem_btn.click()
+                await human_delay(2000, 3000)
+            except Exception as e:
+                logging.error(f"Could not click Redeem: {e}")
+                await browser.close()
+                return False
+            
+            # STEP 5: Click Login Button
+            logging.info("Step 5: Clicking Login button")
+            try:
+                login_btn = await page.wait_for_selector('button:has-text("Login")', timeout=15000)
+                await human_delay(500, 1500)
+                await login_btn.click()
+                await human_delay(3000, 5000)
+                
+                # Check if email/password login modal appears
+                email_input = await page.query_selector('input[type="email"], input[placeholder*="email" i]')
+                if email_input:
+                    logging.info("Login modal appeared - entering credentials")
+                    await human_type(email_input, GARENA_EMAIL)
+                    await human_delay(500, 1000)
+                    
+                    password_input = await page.wait_for_selector('input[type="password"]', timeout=10000)
+                    await human_type(password_input, GARENA_PASSWORD)
+                    await human_delay(500, 1000)
+                    
+                    login_submit = await page.wait_for_selector('button[type="submit"], button:has-text("Login")', timeout=10000)
+                    await login_submit.click()
+                    await human_delay(4000, 6000)
+                    logging.info("Login completed")
+                else:
+                    logging.info("Already logged in")
+            except Exception as e:
+                logging.warning(f"Login step issue: {e}")
+            
+            # STEP 6: Select Diamond Amount
+            await db.orders.update_one(
+                {"id": order["id"]},
+                {"$set": {"automation_state": "SELECT_PACKAGE"}}
+            )
+            logging.info(f"Step 6: Selecting {order['diamonds']} diamonds")
+            try:
+                # Scroll to see options
+                await page.evaluate('window.scrollTo(0, 600)')
+                await human_delay(1000, 2000)
+                
+                # Map our packages to Garena's available options
+                garena_amounts = {
+                    100: "115",  # Closest to 100
+                    310: "240",  # Closest to 310
+                    520: "610",  # Closest to 520
+                    1060: "1,240",  # Closest to 1060
+                    2180: "2,530",  # Closest to 2180
+                    5600: "2,530"   # Use highest available
+                }
+                
+                target_amount = garena_amounts.get(order["diamonds"], str(order["diamonds"]))
+                
+                diamond_selector = await page.wait_for_selector(
+                    f'text="{target_amount} Diamond"',
+                    timeout=15000
+                )
+                await human_delay(500, 1500)
+                await diamond_selector.click()
+                await human_delay(2000, 3000)
+                logging.info(f"Selected {target_amount} Diamond package")
+            except Exception as e:
+                logging.error(f"Could not select diamond package: {e}")
+                await browser.close()
+                return False
+            
+            # STEP 7: Click Proceed to Payment
+            logging.info("Step 7: Clicking Proceed to Payment")
+            try:
+                proceed_btn = await page.wait_for_selector('button:has-text("Proceed to Payment")', timeout=15000)
+                await human_delay(1000, 2000)
+                await proceed_btn.click()
+                await human_delay(3000, 5000)
+            except Exception as e:
+                logging.error(f"Could not click Proceed to Payment: {e}")
+                await browser.close()
+                return False
+            
+            # STEP 8: Select Wallet Payment Method
+            logging.info("Step 8: Looking for Wallet payment option")
+            try:
+                await page.evaluate('window.scrollTo(0, 400)')
+                await human_delay(1000, 2000)
+                
+                # Try multiple selectors for Wallet
+                wallet_found = False
+                wallet_selectors = [
+                    'text="Wallet"',
+                    'text="wallet"',
+                    'text="Shell"',
+                    'button:has-text("Wallet")',
+                    'div:has-text("Wallet")'
+                ]
+                
+                for selector in wallet_selectors:
+                    wallet_elem = await page.query_selector(selector)
+                    if wallet_elem:
+                        logging.info(f"Found Wallet with selector: {selector}")
+                        await human_delay(500, 1500)
+                        await wallet_elem.click()
+                        await human_delay(2000, 3000)
+                        wallet_found = True
+                        break
+                
+                if not wallet_found:
+                    logging.error("Wallet option not found")
+                    await browser.close()
+                    return False
+                    
+            except Exception as e:
+                logging.error(f"Could not select Wallet: {e}")
+                await browser.close()
+                return False
+            
+            # STEP 9: Select UP Points
+            logging.info("Step 9: Looking for UP Points")
+            try:
+                await human_delay(1000, 2000)
+                
+                up_points_selectors = [
+                    'text="UP Points"',
+                    'text="UP"',
+                    'button:has-text("UP Points")',
+                    'div:has-text("UP Points")'
+                ]
+                
+                up_found = False
+                for selector in up_points_selectors:
+                    up_elem = await page.query_selector(selector)
+                    if up_elem:
+                        logging.info(f"Found UP Points with selector: {selector}")
+                        await human_delay(500, 1500)
+                        await up_elem.click()
+                        await human_delay(2000, 3000)
+                        up_found = True
+                        break
+                
+                if not up_found:
+                    logging.warning("UP Points not found, continuing...")
+                    
+            except Exception as e:
+                logging.warning(f"UP Points selection issue: {e}")
+            
+            # STEP 10: Enter Security PIN
+            await db.orders.update_one(
+                {"id": order["id"]},
+                {"$set": {"automation_state": "CONFIRM_PURCHASE"}}
+            )
+            logging.info("Step 10: Looking for Security PIN input")
+            try:
+                pin_input = await page.wait_for_selector(
+                    'input[type="password"], input[placeholder*="PIN" i], input[name*="pin" i]',
+                    timeout=15000
+                )
+                await human_delay(500, 1000)
+                await human_type(pin_input, SECURITY_PIN)
+                await human_delay(1000, 2000)
+                logging.info("Security PIN entered")
+            except Exception as e:
+                logging.warning(f"PIN input not found or not required: {e}")
+            
+            # STEP 11: Click Confirm/Purchase Button
+            logging.info("Step 11: Confirming purchase")
+            try:
+                confirm_selectors = [
+                    'button:has-text("Confirm")',
+                    'button:has-text("Purchase")',
+                    'button:has-text("Pay Now")',
+                    'button:has-text("Buy Now")',
+                    'button[type="submit"]'
+                ]
+                
+                confirm_btn = None
+                for selector in confirm_selectors:
+                    confirm_btn = await page.query_selector(selector)
+                    if confirm_btn:
+                        logging.info(f"Found confirm button: {selector}")
+                        break
+                
+                if confirm_btn:
+                    await human_delay(1000, 2000)
+                    await confirm_btn.click()
+                    await human_delay(5000, 8000)
+                else:
+                    logging.error("Confirm button not found")
+                    await browser.close()
+                    return False
+            except Exception as e:
+                logging.error(f"Could not confirm purchase: {e}")
+                await browser.close()
+                return False
+            
+            # STEP 12: Verify Success
+            await db.orders.update_one(
+                {"id": order["id"]},
+                {"$set": {"automation_state": "VERIFY_SUCCESS"}}
+            )
+            logging.info("Step 12: Verifying transaction success")
+            try:
+                success_indicators = [
+                    'text=/success/i',
+                    'text=/complete/i',
+                    'text=/successful/i',
+                    '[class*="success"]',
+                    'text=/transaction.*complete/i'
+                ]
+                
+                success_found = False
+                for selector in success_indicators:
+                    success_elem = await page.query_selector(selector)
+                    if success_elem:
+                        logging.info(f"Success indicator found: {selector}")
+                        success_found = True
+                        break
+                
+                if success_found:
+                    logging.info(f"Transaction successful for order {order['id']}")
+                    await browser.close()
+                    return True
+                else:
+                    # Wait a bit more and check again
+                    await asyncio.sleep(5)
+                    page_text = await page.inner_text('body')
+                    if any(word in page_text.lower() for word in ['success', 'complete', 'successful']):
+                        logging.info(f"Transaction successful for order {order['id']}")
+                        await browser.close()
+                        return True
+                    else:
+                        logging.error("Success indicator not found")
+                        await browser.close()
+                        return False
+                        
+            except Exception as e:
+                logging.error(f"Could not verify success: {e}")
+                await browser.close()
+                return False
+                
+    except Exception as e:
+        logging.error(f"Automation error for order {order['id']}: {str(e)}")
+        return False
             
             # STEP 1: Open Garena Shop
             await db.orders.update_one(
