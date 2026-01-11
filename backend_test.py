@@ -244,6 +244,39 @@ class FreeFireDiamondAPITester:
         else:
             self.log_test("List User Orders", False, f"Status: {status}")
 
+    def test_wallet_topup_flow(self):
+        """Test wallet top-up payment verification flow"""
+        print("\n💳 Testing Wallet Top-Up Flow...")
+        
+        if not self.user_token:
+            self.log_test("Wallet Top-Up Flow", False, "No user token available")
+            return
+        
+        # Simulate wallet top-up SMS message
+        wallet_sms_data = {
+            "raw_message": "Payment of Rs 100.00 received from 900****555. RRN: WALLET123456789. UPI/FONEPAY"
+        }
+        
+        success, status, data = self.make_request('POST', 'sms/receive', wallet_sms_data)
+        self.log_test("Wallet Top-Up SMS Simulation", success, f"Status: {status}")
+        
+        # Test wallet payment verification (this would be called from wallet payment details page)
+        if self.test_order_id:  # Using existing order for testing payment verification
+            wallet_payment_data = {
+                "order_id": self.test_order_id,
+                "sent_amount": 100.00,
+                "last_3_digits": "555",
+                "payment_method": "FonePay",
+                "remark": "Wallet Top-up"
+            }
+            
+            success, status, data = self.make_request('POST', 'orders/verify-payment', wallet_payment_data, token=self.user_token)
+            
+            if success:
+                self.log_test("Wallet Payment Verification", True, f"Message: {data.get('message', '')}")
+            else:
+                self.log_test("Wallet Payment Verification", False, f"Status: {status}, Response: {data}")
+
     def test_sms_simulation(self):
         """Test SMS message simulation"""
         print("\n📱 Testing SMS Message Simulation...")
