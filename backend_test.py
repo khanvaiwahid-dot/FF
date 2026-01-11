@@ -183,17 +183,16 @@ class FreeFireDiamondAPITester:
             self.log_test("Get Wallet", False, f"Status: {status}, Response: {data}")
 
     def test_order_creation(self):
-        """Test order creation flow"""
+        """Test order creation flow with Bangladesh server requirement"""
         print("\n🛒 Testing Order Management...")
         
         if not self.user_token or not self.package_id:
             self.log_test("Order Creation", False, "Missing user token or package ID")
             return
         
-        # Create order
+        # Test 1: Create order WITHOUT server field (should default to Bangladesh)
         order_data = {
             "player_uid": "123456789",
-            "server": "Asia",
             "package_id": self.package_id
         }
         
@@ -201,16 +200,43 @@ class FreeFireDiamondAPITester:
         
         if success and 'order_id' in data:
             self.test_order_id = data['order_id']
-            self.log_test("Create Order", True, f"Order ID: {self.test_order_id}, Status: {data.get('status')}")
+            self.log_test("Create Order (No Server Field)", True, f"Order ID: {self.test_order_id}, Status: {data.get('status')}")
         else:
-            self.log_test("Create Order", False, f"Status: {status}, Response: {data}")
+            self.log_test("Create Order (No Server Field)", False, f"Status: {status}, Response: {data}")
             return
         
-        # Get order details
-        success, status, data = self.make_request('GET', f'orders/{self.test_order_id}', token=self.user_token)
-        self.log_test("Get Order Details", success, f"Status: {status}")
+        # Test 2: Get order details and verify server is "Bangladesh"
+        success, status, order_details = self.make_request('GET', f'orders/{self.test_order_id}', token=self.user_token)
         
-        # List user orders
+        if success:
+            server_value = order_details.get('server')
+            if server_value == "Bangladesh":
+                self.log_test("Server Field Verification", True, f"Server correctly set to: {server_value}")
+            else:
+                self.log_test("Server Field Verification", False, f"Expected 'Bangladesh', got: {server_value}")
+        else:
+            self.log_test("Get Order Details", False, f"Status: {status}")
+        
+        # Test 3: Try creating order WITH server field (should still be Bangladesh)
+        order_data_with_server = {
+            "player_uid": "987654321",
+            "package_id": self.package_id,
+            "server": "Asia"  # This should be ignored
+        }
+        
+        success, status, data = self.make_request('POST', 'orders/create', order_data_with_server, token=self.user_token)
+        
+        if success and 'order_id' in data:
+            # Check if server is still Bangladesh
+            success2, status2, order_details2 = self.make_request('GET', f'orders/{data["order_id"]}', token=self.user_token)
+            if success2:
+                server_value2 = order_details2.get('server')
+                if server_value2 == "Bangladesh":
+                    self.log_test("Server Override Test", True, f"Server forced to Bangladesh despite input: {server_value2}")
+                else:
+                    self.log_test("Server Override Test", False, f"Server not forced to Bangladesh: {server_value2}")
+        
+        # Test 4: List user orders
         success, status, data = self.make_request('GET', 'orders/list/user', token=self.user_token)
         
         if success and isinstance(data, list):
