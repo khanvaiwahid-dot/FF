@@ -1014,15 +1014,48 @@ async def process_order(order_id: str):
     finally:
         processing_orders.discard(order_id)
 
+async def get_active_garena_account():
+    """Get an active Garena account from database"""
+    # Get least recently used active account
+    account = await db.garena_accounts.find_one(
+        {"active": True},
+        {"_id": 0},
+        sort=[("last_used", 1)]  # Oldest first (or None)
+    )
+    
+    if not account:
+        logging.error("No active Garena accounts found")
+        return None
+    
+    # Update last_used
+    await db.garena_accounts.update_one(
+        {"id": account["id"]},
+        {"$set": {"last_used": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    # Decrypt credentials
+    account["password"] = decrypt_data(account["password"])
+    account["pin"] = decrypt_data(account["pin"])
+    
+    return account
+
 async def run_automation(order: dict) -> bool:
     """Run Playwright automation for Garena top-up with stealth mode"""
     from playwright.async_api import async_playwright
     from playwright_stealth import stealth_async
     import random
     
-    GARENA_EMAIL = "thenexkshetriempire01@gmail.com"
-    GARENA_PASSWORD = "Theone164@"
-    SECURITY_PIN = "164164"
+    # Get Garena account from database
+    garena_account = await get_active_garena_account()
+    if not garena_account:
+        logging.error(f"No active Garena account available for order {order['id']}")
+        return False
+    
+    GARENA_EMAIL = garena_account["email"]
+    GARENA_PASSWORD = garena_account["password"]
+    SECURITY_PIN = garena_account["pin"]
+    
+    logging.info(f"Using Garena account: {garena_account['name']} ({GARENA_EMAIL})")
     
     async def human_delay(min_ms=500, max_ms=2000):
         """Add random human-like delay"""
