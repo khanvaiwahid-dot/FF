@@ -6,7 +6,7 @@ import { useAuth, API } from '@/App';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Gem, Wallet as WalletIcon, LogOut, ChevronRight } from 'lucide-react';
+import { Gem, Wallet as WalletIcon, LogOut, ChevronRight, History } from 'lucide-react';
 
 const TopUp = () => {
   const navigate = useNavigate();
@@ -286,6 +286,14 @@ const TopUp = () => {
           >
             <Gem className="w-5 h-5" />
             <span className="text-xs font-medium">Top Up</span>
+          </button>
+          <button
+            onClick={() => navigate('/orders')}
+            data-testid="nav-orders"
+            className="flex flex-col items-center gap-1 text-gray-500 hover:text-primary transition-colors"
+          >
+            <History className="w-5 h-5" />
+            <span className="text-xs">Orders</span>
           </button>
           <button
             onClick={() => navigate('/wallet')}
