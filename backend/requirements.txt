@@ -71,6 +71,7 @@ pathspec==0.12.1
 pillow==12.1.0
 platformdirs==4.5.1
 playwright==1.57.0
+playwright-stealth==2.0.0
 pluggy==1.6.0
 propcache==0.4.1
 proto-plus==1.27.0
