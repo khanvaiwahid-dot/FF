@@ -159,7 +159,7 @@ const UserOrders = () => {
                 <span className="text-gray-600">Amount</span>
                 <div className="flex items-center gap-1">
                   <Gem className="w-4 h-4 text-primary" />
-                  <span className="text-gray-900 font-semibold">{selectedOrder.diamonds || selectedOrder.amount} {selectedOrder.type === 'diamond' ? 'Diamonds' : 'Days'}</span>
+                  <span className="text-gray-900 font-semibold">{selectedOrder.amount} {selectedOrder.package_type === 'diamond' ? 'Diamonds' : 'Days'}</span>
                 </div>
               </div>
               
