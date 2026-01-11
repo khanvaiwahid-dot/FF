@@ -377,6 +377,7 @@ class FreeFireDiamondAPITester:
         self.test_packages()
         self.test_user_profile_and_wallet()
         self.test_order_creation()
+        self.test_wallet_topup_flow()
         self.test_sms_simulation()
         self.test_admin_endpoints()
         self.test_error_handling()
