@@ -67,7 +67,6 @@ const TopUp = () => {
         fetchUserProfile();
         navigate(`/order/${order_id}`);
       } else {
-        // Navigate to payment method selection
         navigate(`/payment/${order_id}`);
       }
     } catch (error) {
@@ -77,18 +76,23 @@ const TopUp = () => {
     }
   };
 
+  // Group packages by type
+  const diamondPackages = packages.filter(p => p.type === 'diamond');
+  const membershipPackages = packages.filter(p => p.type === 'membership');
+  const evoPackages = packages.filter(p => p.type === 'evo_access');
+
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
-      <div className="bg-gradient-to-b from-card/80 to-transparent backdrop-blur-sm border-b border-white/5 sticky top-0 z-10">
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
               <Gem className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-lg font-heading font-bold text-white" data-testid="topup-title">DiamondStore</h1>
-              <p className="text-xs text-gray-400">@{user?.username}</p>
+              <h1 className="text-lg font-heading font-bold text-gray-900" data-testid="topup-title">DiamondStore</h1>
+              <p className="text-xs text-gray-600">@{user?.username}</p>
             </div>
           </div>
           <Button
@@ -96,7 +100,7 @@ const TopUp = () => {
             data-testid="logout-button"
             variant="ghost"
             size="sm"
-            className="text-gray-400 hover:text-white"
+            className="text-gray-600 hover:text-gray-900"
           >
             <LogOut className="w-4 h-4" />
           </Button>
@@ -108,28 +112,28 @@ const TopUp = () => {
         <div
           onClick={() => navigate('/wallet')}
           data-testid="wallet-card"
-          className="bg-gradient-to-r from-primary/20 to-secondary/20 backdrop-blur-xl border border-white/10 rounded-2xl p-6 cursor-pointer hover:border-primary/30 transition-colors"
+          className="garena-gradient rounded-2xl p-6 cursor-pointer hover:shadow-lg transition-all"
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
+              <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
                 <WalletIcon className="w-6 h-6 text-white" />
               </div>
               <div>
-                <p className="text-gray-300 text-sm">Wallet Balance</p>
+                <p className="text-white/80 text-sm">Wallet Balance</p>
                 <p className="text-2xl font-heading font-bold text-white" data-testid="wallet-balance">₹{walletBalance.toFixed(2)}</p>
               </div>
             </div>
-            <ChevronRight className="w-5 h-5 text-gray-400" />
+            <ChevronRight className="w-5 h-5 text-white/60" />
           </div>
         </div>
 
         {/* Player UID Section */}
-        <div className="bg-card/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 space-y-4">
-          <h2 className="text-xl font-heading font-bold text-white">Player Details</h2>
+        <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4 shadow-sm">
+          <h2 className="text-xl font-heading font-bold text-gray-900">Player Details</h2>
           
           <div className="space-y-2">
-            <Label htmlFor="playerUID" className="text-gray-300">Free Fire Player UID *</Label>
+            <Label htmlFor="playerUID" className="text-gray-700">Free Fire Player UID *</Label>
             <Input
               id="playerUID"
               data-testid="player-uid-input"
@@ -137,46 +141,46 @@ const TopUp = () => {
               placeholder="Enter your Player UID"
               value={playerUID}
               onChange={(e) => setPlayerUID(e.target.value)}
-              className="bg-white/5 border-white/10 focus:border-primary focus:ring-1 focus:ring-primary rounded-xl h-12 text-white"
+              className="border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary rounded-xl h-12"
             />
           </div>
 
           <div className="space-y-2">
-            <Label className="text-gray-300">Server</Label>
-            <div className="bg-white/5 border border-white/10 rounded-xl h-12 flex items-center px-4">
-              <span className="text-white font-semibold">🇧🇩 Bangladesh</span>
+            <Label className="text-gray-700">Server</Label>
+            <div className="bg-gray-100 border border-gray-200 rounded-xl h-12 flex items-center px-4">
+              <span className="text-gray-900 font-semibold">🇧🇩 Bangladesh</span>
             </div>
             <p className="text-xs text-gray-500">Server is fixed to Bangladesh</p>
           </div>
         </div>
 
-        {/* Packages Section */}
-        <div className="bg-card/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 space-y-4">
-          <h2 className="text-xl font-heading font-bold text-white">Select Diamond Package</h2>
+        {/* Diamond Packages */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4 shadow-sm">
+          <h2 className="text-xl font-heading font-bold text-gray-900">Diamond Packages</h2>
           
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {packages.map((pkg) => (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {diamondPackages.map((pkg) => (
               <button
                 key={pkg.id}
-                data-testid={`package-${pkg.diamonds}`}
+                data-testid={`package-${pkg.amount}`}
                 onClick={() => setSelectedPackage(pkg)}
                 className={`relative p-4 rounded-xl border-2 transition-all ${
                   selectedPackage?.id === pkg.id
-                    ? 'bg-primary/10 border-primary shadow-[0_0_20px_rgba(0,240,255,0.3)]'
-                    : 'bg-white/5 border-white/10 hover:border-white/20'
+                    ? 'bg-primary/10 border-primary shadow-md'
+                    : 'bg-white border-gray-200 hover:border-primary/50'
                 }`}
               >
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1 mb-2">
-                    <Gem className={`w-5 h-5 ${selectedPackage?.id === pkg.id ? 'text-primary' : 'text-accent'}`} />
-                    <p className="text-2xl font-heading font-bold text-white">{pkg.diamonds}</p>
+                    <Gem className={`w-5 h-5 ${selectedPackage?.id === pkg.id ? 'text-primary' : 'text-orange-500'}`} />
+                    <p className="text-xl font-heading font-bold text-gray-900">{pkg.amount}</p>
                   </div>
-                  <p className="text-xs text-gray-400 mb-1">{pkg.name}</p>
+                  <p className="text-xs text-gray-600 mb-1">{pkg.name}</p>
                   <p className="text-lg font-bold text-primary">₹{pkg.price}</p>
                 </div>
                 {selectedPackage?.id === pkg.id && (
                   <div className="absolute -top-2 -right-2 w-6 h-6 bg-primary rounded-full flex items-center justify-center">
-                    <svg className="w-4 h-4 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
@@ -186,57 +190,106 @@ const TopUp = () => {
           </div>
         </div>
 
+        {/* Membership & Evo Access */}
+        {(membershipPackages.length > 0 || evoPackages.length > 0) && (
+          <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4 shadow-sm">
+            <h2 className="text-xl font-heading font-bold text-gray-900">Memberships & Evo Access</h2>
+            
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {[...membershipPackages, ...evoPackages].map((pkg) => (
+                <button
+                  key={pkg.id}
+                  data-testid={`package-${pkg.type}-${pkg.amount}`}
+                  onClick={() => setSelectedPackage(pkg)}
+                  className={`relative p-4 rounded-xl border-2 transition-all ${
+                    selectedPackage?.id === pkg.id
+                      ? 'bg-secondary/10 border-secondary shadow-md'
+                      : 'bg-white border-gray-200 hover:border-secondary/50'
+                  }`}
+                >
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-gray-900 mb-1">{pkg.name}</p>
+                    <p className="text-xs text-gray-600 mb-2">{pkg.amount} days</p>
+                    <p className="text-lg font-bold text-secondary">₹{pkg.price}</p>
+                  </div>
+                  {selectedPackage?.id === pkg.id && (
+                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-secondary rounded-full flex items-center justify-center">
+                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Order Summary */}
         {selectedPackage && (
-          <div className="bg-card/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 space-y-4">
-            <h2 className="text-xl font-heading font-bold text-white">Order Summary</h2>
+          <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-4 shadow-sm">
+            <h2 className="text-xl font-heading font-bold text-gray-900">Order Summary</h2>
             
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Package</span>
-                <span className="text-white font-semibold">{selectedPackage.name}</span>
+                <span className="text-gray-600">Package</span>
+                <span className="text-gray-900 font-semibold">{selectedPackage.name}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Server</span>
-                <span className="text-white font-semibold">🇧🇩 Bangladesh</span>
+                <span className="text-gray-600">Server</span>
+                <span className="text-gray-900 font-semibold">Bangladesh</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Amount</span>
-                <span className="text-white font-semibold">₹{selectedPackage.price}</span>
+                <span className="text-gray-600">Wallet Balance</span>
+                <span className="text-gray-900 font-semibold">₹{walletBalance.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Wallet Balance</span>
-                <span className="text-primary font-semibold">₹{walletBalance.toFixed(2)}</span>
+              <div className="border-t border-gray-200 pt-3 flex justify-between">
+                <span className="text-gray-900 font-bold">Total</span>
+                <span className="text-xl font-bold text-primary">₹{selectedPackage.price}</span>
               </div>
+              {walletBalance > 0 && walletBalance < selectedPackage.price && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                  <p className="text-sm text-orange-800">
+                    Wallet will cover ₹{walletBalance.toFixed(2)}. Remaining ₹{(selectedPackage.price - walletBalance).toFixed(2)} via payment.
+                  </p>
+                </div>
+              )}
+              {walletBalance >= selectedPackage.price && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <p className="text-sm text-green-800">
+                    Your wallet has sufficient balance. Order will be paid using wallet.
+                  </p>
+                </div>
+              )}
             </div>
-
-            <Button
-              onClick={handleCreateOrder}
-              data-testid="create-order-button"
-              disabled={loading}
-              className="w-full bg-primary text-black font-bold h-12 rounded-full hover:shadow-[0_0_20px_rgba(0,240,255,0.4)] transition-all"
-            >
-              {loading ? 'Creating Order...' : 'Continue to Payment'}
-            </Button>
           </div>
         )}
+
+        {/* Proceed Button */}
+        <Button
+          onClick={handleCreateOrder}
+          data-testid="proceed-button"
+          disabled={loading || !selectedPackage || !playerUID}
+          className="w-full bg-primary hover:bg-primary-hover text-white font-bold h-14 rounded-full transition-all disabled:opacity-50"
+        >
+          {loading ? 'Creating Order...' : 'Proceed to Payment'}
+        </Button>
       </div>
 
       {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-card/80 backdrop-blur-xl border-t border-white/5 z-20">
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-20 shadow-lg">
         <div className="max-w-4xl mx-auto px-4 py-3 flex justify-around">
           <button
-            onClick={() => navigate('/')}
-            data-testid="nav-topup"
+            data-testid="nav-home"
             className="flex flex-col items-center gap-1 text-primary"
           >
             <Gem className="w-5 h-5" />
-            <span className="text-xs font-medium">Top-Up</span>
+            <span className="text-xs font-medium">Top Up</span>
           </button>
           <button
             onClick={() => navigate('/wallet')}
             data-testid="nav-wallet"
-            className="flex flex-col items-center gap-1 text-gray-400 hover:text-white transition-colors"
+            className="flex flex-col items-center gap-1 text-gray-500 hover:text-primary transition-colors"
           >
             <WalletIcon className="w-5 h-5" />
             <span className="text-xs">Wallet</span>
