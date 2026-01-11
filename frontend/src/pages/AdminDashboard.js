@@ -148,9 +148,63 @@ const AdminDashboard = () => {
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Link
+            to="/admin/products"
+            data-testid="quick-action-products"
+            className="bg-white border border-gray-200 rounded-lg p-6 hover:border-primary hover:shadow-md transition-all"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+                <Package className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <p className="text-gray-900 font-bold">Products</p>
+                <p className="text-xs text-gray-600">Manage pricing</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600">Create, edit, and manage product prices</p>
+          </Link>
+
+          <Link
+            to="/admin/garena-accounts"
+            data-testid="quick-action-garena"
+            className="bg-white border border-gray-200 rounded-lg p-6 hover:border-primary hover:shadow-md transition-all"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-12 h-12 bg-secondary/10 rounded-lg flex items-center justify-center">
+                <Shield className="w-6 h-6 text-secondary" />
+              </div>
+              <div>
+                <p className="text-gray-900 font-bold">Garena Accounts</p>
+                <p className="text-xs text-gray-600">Automation credentials</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600">Manage Garena accounts for automation</p>
+          </Link>
+
+          <Link
+            to="/admin/users"
+            data-testid="quick-action-users"
+            className="bg-white border border-gray-200 rounded-lg p-6 hover:border-primary hover:shadow-md transition-all"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-12 h-12 bg-accent/10 rounded-lg flex items-center justify-center">
+                <Users className="w-6 h-6 text-accent" />
+              </div>
+              <div>
+                <p className="text-gray-900 font-bold">Users</p>
+                <p className="text-xs text-gray-600">User management</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600">Create, block, and manage users</p>
+          </Link>
+        </div>
+
+        {/* Order Management Actions */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Link
             to="/admin/orders"
             data-testid="quick-action-orders"
-            className="bg-card/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 hover:border-primary/30 transition-colors"
+            className="bg-white border border-gray-200 rounded-lg p-6 hover:border-primary hover:shadow-md transition-all"
           >
             <div className="flex items-center gap-3 mb-3">
               <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
