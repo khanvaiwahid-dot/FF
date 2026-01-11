@@ -656,12 +656,23 @@ async def verify_payment(request: PaymentVerificationRequest, user_data: dict = 
         }}
     )
     
-    # Try to match with SMS messages
+    # Get exact amount required (before rounding)
+    exact_required = order.get("exact_payment_required", order.get("payment_amount", 0))
+    
+    # Try to match with SMS messages - allow overpayment (amount >= required)
     matching_sms = await db.sms_messages.find_one({
-        "amount": request.sent_amount,
+        "amount": {"$gte": exact_required},  # Accept amount >= required
         "last3digits": request.last_3_digits,
         "used": False
     }, {"_id": 0})
+    
+    # If no exact+ match, try to find exact amount sent by user
+    if not matching_sms:
+        matching_sms = await db.sms_messages.find_one({
+            "amount": request.sent_amount,
+            "last3digits": request.last_3_digits,
+            "used": False
+        }, {"_id": 0})
     
     if matching_sms:
         # Check if RRN is already used
@@ -673,25 +684,29 @@ async def verify_payment(request: PaymentVerificationRequest, user_data: dict = 
             )
             return {"message": "This payment has already been used for another order", "status": "duplicate_payment"}
         
-        # Mark SMS as used and update order
+        # Mark SMS as used
         await db.sms_messages.update_one(
             {"id": matching_sms["id"]},
             {"$set": {"used": True, "matched_order_id": request.order_id}}
         )
         
-        await db.orders.update_one(
-            {"id": request.order_id},
-            {"$set": {
-                "payment_rrn": matching_sms["rrn"],
-                "raw_message": matching_sms["raw_message"],
-                "status": "paid",
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }}
+        # Process payment with overpayment handling
+        overpayment = await process_payment_with_overpayment(
+            order, 
+            matching_sms["amount"], 
+            matching_sms["rrn"], 
+            matching_sms["raw_message"]
         )
         
         # Add to automation queue
         await add_to_queue(request.order_id)
         
+        if overpayment > 0:
+            return {
+                "message": f"Payment verified! ₹{overpayment:.2f} extra was credited to your wallet. Your order is being processed.",
+                "status": "paid",
+                "overpayment_credited": overpayment
+            }
         return {"message": "Payment verified successfully! Your order is being processed.", "status": "paid"}
     else:
         # Payment not found - mark as pending manual review
