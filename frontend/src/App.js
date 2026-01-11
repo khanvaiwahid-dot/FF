@@ -22,6 +22,7 @@ import AdminPayments from './pages/AdminPayments';
 import AdminProducts from './pages/admin/AdminProducts';
 import AdminGarenaAccounts from './pages/admin/AdminGarenaAccounts';
 import AdminUsers from './pages/admin/AdminUsers';
+import AdminSMSInbox from './pages/admin/AdminSMSInbox';
 import UserOrders from './pages/UserOrders';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -115,6 +116,7 @@ function App() {
           <Route path="/admin/products" element={<ProtectedRoute adminOnly><AdminProducts /></ProtectedRoute>} />
           <Route path="/admin/garena-accounts" element={<ProtectedRoute adminOnly><AdminGarenaAccounts /></ProtectedRoute>} />
           <Route path="/admin/users" element={<ProtectedRoute adminOnly><AdminUsers /></ProtectedRoute>} />
+          <Route path="/admin/sms-inbox" element={<ProtectedRoute adminOnly><AdminSMSInbox /></ProtectedRoute>} />
           <Route path="/admin/orders" element={<ProtectedRoute adminOnly><AdminOrders /></ProtectedRoute>} />
           <Route path="/admin/review" element={<ProtectedRoute adminOnly><AdminReview /></ProtectedRoute>} />
           <Route path="/admin/payments" element={<ProtectedRoute adminOnly><AdminPayments /></ProtectedRoute>} />
