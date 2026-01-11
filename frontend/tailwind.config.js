@@ -5,33 +5,34 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        background: '#0B0B0F',
-        card: '#121218',
-        subtle: '#1A1A24',
-        primary: '#00F0FF',
-        'primary-hover': '#00C2CC',
-        secondary: '#B026FF',
-        'secondary-hover': '#8A1CC4',
-        accent: '#FFBA00',
-        success: '#00FF94',
-        error: '#FF2E2E',
-        warning: '#FFBA00',
-        info: '#00F0FF',
-        border: 'rgba(255, 255, 255, 0.05)',
-        input: 'rgba(255, 255, 255, 0.05)',
-        ring: 'hsl(var(--ring))',
-        foreground: 'hsl(var(--foreground))',
+        // Garena color scheme - white/orange/red
+        background: '#FFFFFF',
+        card: '#FFFFFF',
+        subtle: '#F5F5F5',
+        primary: '#FF4500',        // Garena orange-red
+        'primary-hover': '#E03E00',
+        secondary: '#FF6B35',      // Lighter orange
+        'secondary-hover': '#FF5520',
+        accent: '#FFA500',         // Pure orange
+        success: '#28A745',
+        error: '#DC3545',
+        warning: '#FFC107',
+        info: '#17A2B8',
+        border: 'rgba(0, 0, 0, 0.1)',
+        input: 'rgba(0, 0, 0, 0.05)',
+        ring: '#FF4500',
+        foreground: '#212529',
         destructive: {
-          DEFAULT: 'hsl(var(--destructive))',
-          foreground: 'hsl(var(--destructive-foreground))'
+          DEFAULT: '#DC3545',
+          foreground: '#FFFFFF'
         },
         muted: {
-          DEFAULT: 'hsl(var(--muted))',
-          foreground: 'hsl(var(--muted-foreground))'
+          DEFAULT: '#6C757D',
+          foreground: '#495057'
         },
         popover: {
-          DEFAULT: 'hsl(var(--popover))',
-          foreground: 'hsl(var(--popover-foreground))'
+          DEFAULT: '#FFFFFF',
+          foreground: '#212529'
         }
       },
       fontFamily: {
@@ -42,8 +43,7 @@ module.exports = {
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)'
-      },
+        sm: 'calc(var(--radius) - 4px)'\n      },
       keyframes: {
         'accordion-down': {
           from: { height: 0 },
