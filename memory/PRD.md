@@ -13,7 +13,7 @@ Build a fully automated Free Fire diamonds top-up platform with the following re
 
 ---
 
-## What's Been Implemented (as of Jan 11, 2026)
+## What's Been Implemented (as of Jan 12, 2026)
 
 ### ✅ Completed - Backend
 - FastAPI server with all CRUD endpoints
@@ -23,8 +23,14 @@ Build a fully automated Free Fire diamonds top-up platform with the following re
 - Garena Accounts API with encrypted credentials (using cryptography library) - includes PIN field
 - User Management API (create, block/unblock, password reset, soft delete)
 - Order creation with wallet integration
+- **Payment Amount Rounding** - Amounts rounded up to clean numbers (no odd decimals)
+- **Overpayment Handling** - Extra payment automatically credited to user wallet with transaction logging
 - **User Orders API** - list all user orders with full details
-- SMS parsing endpoint for payment verification
+- **Admin SMS Management API**:
+  - `/api/admin/sms` - List all SMS messages
+  - `/api/admin/sms/input` - Admin manually inputs SMS for payment verification
+  - `/api/admin/sms/match/{sms_id}` - Admin manually matches SMS to order
+- Improved SMS parsing with multiple phone number formats
 - Dashboard stats endpoint
 - Package initialization with 12 products matching Garena offerings
 
@@ -34,16 +40,18 @@ Build a fully automated Free Fire diamonds top-up platform with the following re
 - **Light orange backgrounds** (#FFF7ED) for cards
 - Login & Signup pages with proper styling
 - Admin Login page
-- Admin Dashboard with stats cards and charts
+- Admin Dashboard with stats cards, charts, and management links
 - Admin Products Management (view all 12 products, edit, delete)
 - Admin Garena Accounts Management (CRUD with **PIN field** and hidden credentials)
 - Admin Users Management (view, block/unblock, password reset)
+- **Admin SMS Inbox** - Input payment SMS, view parsed data, manual order matching
 - User TopUp page with wallet balance and package selection
+- **UID validation** - minimum 8 digits, numbers only
 - **User Orders page** with:
   - Order list with copyable Order ID
   - Status badges (Paid, Processing, Failed, etc.)
   - Order detail view with full info and status timeline
-- Wallet page with transaction history
+- Wallet page with transaction history (including overpayment credits)
 - Fixed Bangladesh server display
 - Bottom navigation with 3 tabs (Top Up, Orders, Wallet)
 
@@ -64,12 +72,11 @@ Build a fully automated Free Fire diamonds top-up platform with the following re
 ## Pending/Future Tasks
 
 ### P1 - High Priority
-- [ ] Payment pages (PaymentMethod, PaymentDetails) - need theme update
-- [ ] Wallet Add Funds page - need theme update
 - [ ] End-to-end order flow testing with payment
+- [ ] Test overpayment crediting flow
 
 ### P2 - Medium Priority
-- [ ] Payment message parsing automation (SMS/app notifications)
+- [ ] Android SMS forwarder app (auto-forward payment SMS to backend)
 - [ ] Automation queue with retry logic and failover
 
 ### P3 - Future/Backlog
