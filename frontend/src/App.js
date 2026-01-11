@@ -19,6 +19,9 @@ import AdminDashboard from './pages/AdminDashboard';
 import AdminOrders from './pages/AdminOrders';
 import AdminReview from './pages/AdminReview';
 import AdminPayments from './pages/AdminPayments';
+import AdminProducts from './pages/admin/AdminProducts';
+import AdminGarenaAccounts from './pages/admin/AdminGarenaAccounts';
+import AdminUsers from './pages/admin/AdminUsers';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
