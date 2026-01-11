@@ -443,26 +443,30 @@ async def create_order(request: CreateOrderRequest, user_data: dict = Depends(ge
     if user_data["type"] != "user":
         raise HTTPException(status_code=403, detail="User access required")
     
+    # Check if user is blocked
+    user = await db.users.find_one({"id": user_data["user_id"]}, {"_id": 0})
+    if user.get("blocked", False):
+        raise HTTPException(status_code=403, detail="Account is blocked")
+    
     package = await db.packages.find_one({"id": request.package_id}, {"_id": 0})
     if not package or not package["active"]:
         raise HTTPException(status_code=404, detail="Package not found")
     
-    user = await db.users.find_one({"id": user_data["user_id"]}, {"_id": 0})
-    
     order_id = str(uuid.uuid4())
     wallet_used = 0.0
-    payment_amount = package["price"]
+    locked_price = package["price"]  # Lock price at order time
+    payment_amount = locked_price
     status = "pending_payment"
     
     # Check if wallet can cover partially or fully
     if user["wallet_balance"] > 0:
-        if user["wallet_balance"] >= package["price"]:
-            wallet_used = package["price"]
+        if user["wallet_balance"] >= locked_price:
+            wallet_used = locked_price
             payment_amount = 0.0
             status = "wallet_fully_paid"
         else:
             wallet_used = user["wallet_balance"]
-            payment_amount = package["price"] - wallet_used
+            payment_amount = locked_price - wallet_used
             status = "wallet_partial_paid"
     
     order_doc = {
@@ -471,9 +475,11 @@ async def create_order(request: CreateOrderRequest, user_data: dict = Depends(ge
         "username": user["username"],
         "player_uid": request.player_uid,
         "server": "Bangladesh",
+        "package_id": package["id"],
         "package_name": package["name"],
-        "diamonds": package["diamonds"],
-        "amount": package["price"],
+        "package_type": package["type"],
+        "amount": package["amount"],
+        "locked_price": locked_price,  # Price locked at purchase time
         "wallet_used": wallet_used,
         "payment_amount": payment_amount,
         "payment_last3digits": None,
