@@ -40,6 +40,22 @@ def decrypt_data(encrypted_data: str) -> str:
     """Decrypt sensitive data"""
     return cipher_suite.decrypt(encrypted_data.encode()).decode()
 
+def round_up_payment(amount: float) -> float:
+    """Round up payment amount to clean number (no odd decimals).
+    - If amount < 10: round to nearest 1
+    - If amount >= 10: round to nearest 5 or 10
+    """
+    if amount <= 0:
+        return 0.0
+    if amount < 10:
+        return float(math.ceil(amount))
+    elif amount < 100:
+        # Round to nearest 5
+        return float(math.ceil(amount / 5) * 5)
+    else:
+        # Round to nearest 10
+        return float(math.ceil(amount / 10) * 10)
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
