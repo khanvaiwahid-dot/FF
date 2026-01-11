@@ -1397,14 +1397,28 @@ async def initialize_data():
     if existing_packages > 0:
         return {"message": "Already initialized"}
     
-    # Create default packages
+    # Create Garena-matching packages
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    
     packages = [
-        {"id": str(uuid.uuid4()), "name": "100 Diamonds", "diamonds": 100, "price": 1.5, "active": True},
-        {"id": str(uuid.uuid4()), "name": "310 Diamonds", "diamonds": 310, "price": 4.5, "active": True},
-        {"id": str(uuid.uuid4()), "name": "520 Diamonds", "diamonds": 520, "price": 7.5, "active": True},
-        {"id": str(uuid.uuid4()), "name": "1060 Diamonds", "diamonds": 1060, "price": 15.0, "active": True},
-        {"id": str(uuid.uuid4()), "name": "2180 Diamonds", "diamonds": 2180, "price": 30.0, "active": True},
-        {"id": str(uuid.uuid4()), "name": "5600 Diamonds", "diamonds": 5600, "price": 75.0, "active": True}
+        # Diamonds
+        {"id": str(uuid.uuid4()), "name": "25 Diamonds", "type": "diamond", "amount": 25, "price": 0.99, "active": True, "sort_order": 1, "created_at": now, "updated_at": now},
+        {"id": str(uuid.uuid4()), "name": "50 Diamonds", "type": "diamond", "amount": 50, "price": 1.99, "active": True, "sort_order": 2, "created_at": now, "updated_at": now},
+        {"id": str(uuid.uuid4()), "name": "115 Diamonds", "type": "diamond", "amount": 115, "price": 4.50, "active": True, "sort_order": 3, "created_at": now, "updated_at": now},
+        {"id": str(uuid.uuid4()), "name": "240 Diamonds", "type": "diamond", "amount": 240, "price": 9.00, "active": True, "sort_order": 4, "created_at": now, "updated_at": now},
+        {"id": str(uuid.uuid4()), "name": "610 Diamonds", "type": "diamond", "amount": 610, "price": 22.50, "active": True, "sort_order": 5, "created_at": now, "updated_at": now},
+        {"id": str(uuid.uuid4()), "name": "1,240 Diamonds", "type": "diamond", "amount": 1240, "price": 45.00, "active": True, "sort_order": 6, "created_at": now, "updated_at": now},
+        {"id": str(uuid.uuid4()), "name": "2,530 Diamonds", "type": "diamond", "amount": 2530, "price": 90.00, "active": True, "sort_order": 7, "created_at": now, "updated_at": now},
+        
+        # Memberships
+        {"id": str(uuid.uuid4()), "name": "Weekly Membership", "type": "membership", "amount": 7, "price": 5.99, "active": True, "sort_order": 8, "created_at": now, "updated_at": now},
+        {"id": str(uuid.uuid4()), "name": "Monthly Membership", "type": "membership", "amount": 30, "price": 19.99, "active": True, "sort_order": 9, "created_at": now, "updated_at": now},
+        
+        # Evo Access
+        {"id": str(uuid.uuid4()), "name": "Evo Access 3D", "type": "evo_access", "amount": 3, "price": 3.99, "active": True, "sort_order": 10, "created_at": now, "updated_at": now},
+        {"id": str(uuid.uuid4()), "name": "Evo Access 7D", "type": "evo_access", "amount": 7, "price": 7.99, "active": True, "sort_order": 11, "created_at": now, "updated_at": now},
+        {"id": str(uuid.uuid4()), "name": "Evo Access 30D", "type": "evo_access", "amount": 30, "price": 24.99, "active": True, "sort_order": 12, "created_at": now, "updated_at": now},
     ]
     await db.packages.insert_many(packages)
     
@@ -1416,7 +1430,7 @@ async def initialize_data():
             "username": "admin",
             "email": "admin@diamondstore.com",
             "password_hash": hash_password("admin123"),
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "created_at": now
         }
         await db.admins.insert_one(admin_doc)
     
