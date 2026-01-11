@@ -175,7 +175,7 @@ const UserOrders = () => {
               
               <div className="flex justify-between items-center py-2">
                 <span className="text-gray-600">Total Paid</span>
-                <span className="text-xl font-bold text-primary">₹{selectedOrder.price_at_purchase?.toFixed(2) || selectedOrder.price?.toFixed(2)}</span>
+                <span className="text-xl font-bold text-primary">₹{selectedOrder.locked_price?.toFixed(2) || selectedOrder.price?.toFixed(2) || '0.00'}</span>
               </div>
             </div>
           </div>
