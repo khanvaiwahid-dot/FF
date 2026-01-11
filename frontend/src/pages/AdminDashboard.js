@@ -18,7 +18,8 @@ import {
   XCircle,
   Clock,
   Shield,
-  Users
+  Users,
+  MessageSquare
 } from 'lucide-react';
 
 const AdminDashboard = () => {
