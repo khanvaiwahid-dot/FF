@@ -109,7 +109,7 @@ const Wallet = () => {
             <p className="text-gray-300 text-sm mb-2">Available Balance</p>
             <p className="text-5xl font-heading font-bold text-white mb-6" data-testid="wallet-balance">₹{walletData.balance.toFixed(2)}</p>
             <Button
-              onClick={() => setShowAddFunds(!showAddFunds)}
+              onClick={() => navigate('/wallet/add-funds')}
               data-testid="add-funds-button"
               className="bg-primary text-black font-bold h-12 px-8 rounded-full hover:shadow-[0_0_20px_rgba(0,240,255,0.4)] transition-all"
             >
