@@ -580,6 +580,58 @@ async def list_user_orders(user_data: dict = Depends(get_current_user)):
     
     return orders
 
+async def process_payment_with_overpayment(order: dict, payment_amount: float, rrn: str = None, raw_message: str = None):
+    """Process payment and handle overpayment by crediting to wallet.
+    Returns overpayment amount credited (0 if no overpayment).
+    """
+    exact_required = order.get("exact_payment_required", order.get("payment_amount", 0))
+    overpayment = max(0, payment_amount - exact_required)
+    
+    # Update order status to paid
+    update_data = {
+        "status": "paid",
+        "payment_received": payment_amount,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if rrn:
+        update_data["payment_rrn"] = rrn
+    if raw_message:
+        update_data["raw_message"] = raw_message
+    
+    if overpayment > 0:
+        update_data["overpayment_credited"] = overpayment
+        
+        # Credit overpayment to user's wallet
+        user = await db.users.find_one({"id": order["user_id"]}, {"_id": 0})
+        if user:
+            new_balance = user.get("wallet_balance", 0) + overpayment
+            await db.users.update_one(
+                {"id": order["user_id"]},
+                {"$set": {"wallet_balance": new_balance}}
+            )
+            
+            # Create wallet transaction for overpayment credit
+            transaction_doc = {
+                "id": str(uuid.uuid4()),
+                "user_id": order["user_id"],
+                "type": "overpayment_credit",
+                "amount": overpayment,
+                "order_id": order["id"],
+                "payment_id": None,
+                "balance_before": user.get("wallet_balance", 0),
+                "balance_after": new_balance,
+                "description": f"Overpayment from order #{order['id'][:8].upper()}",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.wallet_transactions.insert_one(transaction_doc)
+            
+            logging.info(f"Credited ₹{overpayment} overpayment to user {order['user_id']} wallet")
+    
+    await db.orders.update_one({"id": order["id"]}, {"$set": update_data})
+    
+    return overpayment
+
 @api_router.post("/orders/verify-payment")
 async def verify_payment(request: PaymentVerificationRequest, user_data: dict = Depends(get_current_user)):
     if user_data["type"] != "user":
