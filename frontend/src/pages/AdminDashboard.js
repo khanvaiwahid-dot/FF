@@ -203,7 +203,7 @@ const AdminDashboard = () => {
         </div>
 
         {/* Order Management Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Link
             to="/admin/orders"
             data-testid="quick-action-orders"
@@ -219,6 +219,23 @@ const AdminDashboard = () => {
               </div>
             </div>
             <p className="text-sm text-gray-600">View and manage all orders</p>
+          </Link>
+
+          <Link
+            to="/admin/sms-inbox"
+            data-testid="quick-action-sms"
+            className="bg-white border border-gray-200 rounded-lg p-6 hover:border-green-500 hover:shadow-md transition-all"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                <MessageSquare className="w-6 h-6 text-green-600" />
+              </div>
+              <div>
+                <p className="text-gray-900 font-bold">SMS Inbox</p>
+                <p className="text-xs text-gray-600">Payment verification</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600">Input & verify payment SMS</p>
           </Link>
 
           <Link
