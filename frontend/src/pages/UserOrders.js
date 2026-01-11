@@ -281,7 +281,7 @@ const UserOrders = () => {
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <p className="text-gray-900 font-bold">{order.package_name || `${order.diamonds || order.amount} ${order.type === 'diamond' ? 'Diamonds' : 'Days'}`}</p>
+                        <p className="text-gray-900 font-bold">{order.package_name || `${order.amount} ${order.package_type === 'diamond' ? 'Diamonds' : 'Days'}`}</p>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-500">
                         <span className="font-mono">#{order.id.slice(0, 8).toUpperCase()}</span>
