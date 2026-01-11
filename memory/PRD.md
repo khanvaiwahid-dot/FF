@@ -20,24 +20,32 @@ Build a fully automated Free Fire diamonds top-up platform with the following re
 - User authentication (signup, login, password reset)
 - Admin authentication with JWT
 - Products API with full CRUD operations
-- Garena Accounts API with encrypted credentials (using cryptography library)
+- Garena Accounts API with encrypted credentials (using cryptography library) - includes PIN field
 - User Management API (create, block/unblock, password reset, soft delete)
 - Order creation with wallet integration
+- **User Orders API** - list all user orders with full details
 - SMS parsing endpoint for payment verification
 - Dashboard stats endpoint
 - Package initialization with 12 products matching Garena offerings
 
 ### ✅ Completed - Frontend
 - Garena-style white/orange/red theme applied across all pages
+- **Fixed text colors** - all text uses dark gray/black (#111827, #374151) on light backgrounds
+- **Light orange backgrounds** (#FFF7ED) for cards
 - Login & Signup pages with proper styling
 - Admin Login page
 - Admin Dashboard with stats cards and charts
 - Admin Products Management (view all 12 products, edit, delete)
-- Admin Garena Accounts Management (CRUD with hidden credentials)
+- Admin Garena Accounts Management (CRUD with **PIN field** and hidden credentials)
 - Admin Users Management (view, block/unblock, password reset)
 - User TopUp page with wallet balance and package selection
+- **User Orders page** with:
+  - Order list with copyable Order ID
+  - Status badges (Paid, Processing, Failed, etc.)
+  - Order detail view with full info and status timeline
+- Wallet page with transaction history
 - Fixed Bangladesh server display
-- Bottom navigation on all pages
+- Bottom navigation with 3 tabs (Top Up, Orders, Wallet)
 
 ### ✅ Completed - Database
 - MongoDB collections: users, admins, packages, orders, garena_accounts, wallet_transactions, sms_messages, admin_actions
@@ -57,9 +65,8 @@ Build a fully automated Free Fire diamonds top-up platform with the following re
 
 ### P1 - High Priority
 - [ ] Payment pages (PaymentMethod, PaymentDetails) - need theme update
-- [ ] Wallet pages (Wallet, WalletAddFunds, WalletPaymentDetails) - need theme update
-- [ ] Order Status page - needs theme update
-- [ ] End-to-end order flow testing
+- [ ] Wallet Add Funds page - need theme update
+- [ ] End-to-end order flow testing with payment
 
 ### P2 - Medium Priority
 - [ ] Payment message parsing automation (SMS/app notifications)
