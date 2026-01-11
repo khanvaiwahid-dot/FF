@@ -63,6 +63,8 @@ const UserOrders = () => {
     const configs = {
       success: { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', label: 'Completed' },
       pending_payment: { icon: Clock, color: 'text-yellow-600', bg: 'bg-yellow-100', label: 'Pending Payment' },
+      wallet_fully_paid: { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', label: 'Paid - Processing' },
+      wallet_partial_paid: { icon: Clock, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Partial Paid' },
       queued: { icon: Clock, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Queued' },
       processing: { icon: Clock, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Processing' },
       failed: { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100', label: 'Failed' },
