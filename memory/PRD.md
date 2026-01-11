@@ -73,17 +73,42 @@ Build a fully automated Free Fire diamonds top-up platform with the following re
 
 ### P1 - High Priority
 - [ ] End-to-end order flow testing with payment
-- [ ] Test overpayment crediting flow
 
 ### P2 - Medium Priority
-- [ ] Android SMS forwarder app (auto-forward payment SMS to backend)
 - [ ] Automation queue with retry logic and failover
+- [ ] Build and distribute Android APK
 
 ### P3 - Future/Backlog
 - [ ] Garena automation end-to-end testing (requires live site access)
 - [ ] Code refactoring: split server.py into multiple routers
 - [ ] Rate limiting on API endpoints
 - [ ] Admin action audit logging UI
+
+---
+
+## Android SMS Forwarder App
+
+Located at `/app/android-sms-forwarder/`
+
+### Features
+- Auto-detects payment SMS (FonePay, eSewa, Khalti, bank transfers)
+- Instant forwarding to DiamondStore server
+- Background service with foreground notification
+- Auto-start on device boot
+- Connection testing
+- Retry mechanism for failed forwards
+
+### Build Instructions
+1. Open in Android Studio
+2. Sync Gradle
+3. Build → Generate Signed APK (or Run for debug)
+
+### Setup
+1. Install APK on Android device
+2. Grant SMS & notification permissions
+3. Enter server URL: `https://garenashop-1.preview.emergentagent.com`
+4. Tap "Test Connection"
+5. Enable SMS Forwarding switch
 
 ---
 
