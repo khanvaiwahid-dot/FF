@@ -737,13 +737,22 @@ async def receive_sms(message: SMSMessage):
     
     await db.sms_messages.insert_one(sms_doc)
     
-    # Try to match with pending orders
+    # Try to match with pending orders - support overpayment
     if parsed["amount"] and parsed["last3digits"]:
+        # Find orders where payment amount is <= received amount (allows overpayment)
         pending_orders = await db.orders.find({
             "status": {"$in": ["pending_payment", "wallet_partial_paid", "manual_review"]},
-            "payment_amount": parsed["amount"],
+            "exact_payment_required": {"$lte": parsed["amount"]},  # Allow overpayment
             "payment_last3digits": parsed["last3digits"]
         }, {"_id": 0}).to_list(10)
+        
+        # If no match with exact_payment_required, try payment_amount for backward compat
+        if not pending_orders:
+            pending_orders = await db.orders.find({
+                "status": {"$in": ["pending_payment", "wallet_partial_paid", "manual_review"]},
+                "payment_amount": {"$lte": parsed["amount"]},
+                "payment_last3digits": parsed["last3digits"]
+            }, {"_id": 0}).to_list(10)
         
         for order in pending_orders:
             # Check if RRN already used
@@ -756,15 +765,12 @@ async def receive_sms(message: SMSMessage):
                     )
                     continue
             
-            # Update order
-            await db.orders.update_one(
-                {"id": order["id"]},
-                {"$set": {
-                    "payment_rrn": parsed["rrn"],
-                    "raw_message": message.raw_message,
-                    "status": "paid",
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                }}
+            # Process payment with overpayment handling
+            overpayment = await process_payment_with_overpayment(
+                order, 
+                parsed["amount"], 
+                parsed["rrn"], 
+                message.raw_message
             )
             
             await db.sms_messages.update_one(
@@ -773,6 +779,8 @@ async def receive_sms(message: SMSMessage):
             )
             
             await add_to_queue(order["id"])
+            
+            logging.info(f"Auto-matched SMS to order {order['id']}. Overpayment: ₹{overpayment}")
             break
     
     return {"message": "SMS received and processed"}
