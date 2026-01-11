@@ -1,54 +1,113 @@
-import { useEffect } from "react";
-import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import { useState, useEffect, createContext, useContext } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import axios from 'axios';
+import { Toaster } from '@/components/ui/sonner';
+import { toast } from 'sonner';
+import '@/index.css';
+
+import Login from './pages/Login';
+import Signup from './pages/Signup';
+import AdminLogin from './pages/AdminLogin';
+import TopUp from './pages/TopUp';
+import OrderStatus from './pages/OrderStatus';
+import Wallet from './pages/Wallet';
+import AdminDashboard from './pages/AdminDashboard';
+import AdminOrders from './pages/AdminOrders';
+import AdminReview from './pages/AdminReview';
+import AdminPayments from './pages/AdminPayments';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
+// Auth Context
+const AuthContext = createContext();
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
+  return context;
+};
+
+const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    helloWorldApi();
+    const token = localStorage.getItem('token');
+    const userType = localStorage.getItem('userType');
+    const username = localStorage.getItem('username');
+    const walletBalance = localStorage.getItem('walletBalance');
+
+    if (token && userType && username) {
+      setUser({ token, userType, username, walletBalance: parseFloat(walletBalance) || 0 });
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+    setLoading(false);
   }, []);
 
+  const login = (token, userType, username, walletBalance = 0) => {
+    localStorage.setItem('token', token);
+    localStorage.setItem('userType', userType);
+    localStorage.setItem('username', username);
+    localStorage.setItem('walletBalance', walletBalance.toString());
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    setUser({ token, userType, username, walletBalance });
+  };
+
+  const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userType');
+    localStorage.removeItem('username');
+    localStorage.removeItem('walletBalance');
+    delete axios.defaults.headers.common['Authorization'];
+    setUser(null);
+  };
+
+  const updateWalletBalance = (balance) => {
+    localStorage.setItem('walletBalance', balance.toString());
+    setUser(prev => ({ ...prev, walletBalance: balance }));
+  };
+
   return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
+    <AuthContext.Provider value={{ user, login, logout, updateWalletBalance, loading }}>
+      {children}
+    </AuthContext.Provider>
   );
+};
+
+const ProtectedRoute = ({ children, adminOnly = false }) => {
+  const { user, loading } = useAuth();
+
+  if (loading) return <div className="min-h-screen bg-background flex items-center justify-center"><div className="text-primary">Loading...</div></div>;
+
+  if (!user) return <Navigate to="/login" />;
+  if (adminOnly && user.userType !== 'admin') return <Navigate to="/" />;
+  if (!adminOnly && user.userType === 'admin') return <Navigate to="/admin/dashboard" />;
+
+  return children;
 };
 
 function App() {
   return (
-    <div className="App">
+    <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/" element={<ProtectedRoute><TopUp /></ProtectedRoute>} />
+          <Route path="/order/:orderId" element={<ProtectedRoute><OrderStatus /></ProtectedRoute>} />
+          <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
+          <Route path="/admin/dashboard" element={<ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>} />
+          <Route path="/admin/orders" element={<ProtectedRoute adminOnly><AdminOrders /></ProtectedRoute>} />
+          <Route path="/admin/review" element={<ProtectedRoute adminOnly><AdminReview /></ProtectedRoute>} />
+          <Route path="/admin/payments" element={<ProtectedRoute adminOnly><AdminPayments /></ProtectedRoute>} />
         </Routes>
+        <Toaster position="top-center" richColors />
       </BrowserRouter>
-    </div>
+    </AuthProvider>
   );
 }
 
 export default App;
+export { API };
