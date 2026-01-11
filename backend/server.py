@@ -400,7 +400,7 @@ async def create_order(request: CreateOrderRequest, user_data: dict = Depends(ge
         "user_id": user_data["user_id"],
         "username": user["username"],
         "player_uid": request.player_uid,
-        "server": request.server,
+        "server": "Bangladesh",
         "package_name": package["name"],
         "diamonds": package["diamonds"],
         "amount": package["price"],
