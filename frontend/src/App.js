@@ -110,6 +110,9 @@ function App() {
           <Route path="/wallet/add-funds" element={<ProtectedRoute><WalletAddFunds /></ProtectedRoute>} />
           <Route path="/wallet/payment-details" element={<ProtectedRoute><WalletPaymentDetails /></ProtectedRoute>} />
           <Route path="/admin/dashboard" element={<ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>} />
+          <Route path="/admin/products" element={<ProtectedRoute adminOnly><AdminProducts /></ProtectedRoute>} />
+          <Route path="/admin/garena-accounts" element={<ProtectedRoute adminOnly><AdminGarenaAccounts /></ProtectedRoute>} />
+          <Route path="/admin/users" element={<ProtectedRoute adminOnly><AdminUsers /></ProtectedRoute>} />
           <Route path="/admin/orders" element={<ProtectedRoute adminOnly><AdminOrders /></ProtectedRoute>} />
           <Route path="/admin/review" element={<ProtectedRoute adminOnly><AdminReview /></ProtectedRoute>} />
           <Route path="/admin/payments" element={<ProtectedRoute adminOnly><AdminPayments /></ProtectedRoute>} />
