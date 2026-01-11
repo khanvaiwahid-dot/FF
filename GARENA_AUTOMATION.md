@@ -1,334 +1,387 @@
-# Garena Automation Integration Guide
+# Garena Automation with Stealth Mode - Implementation Guide
 
 ## Overview
 
-The Free Fire diamonds top-up platform now includes full integration with the official Garena shop (https://shop.garena.my/) for automated diamond delivery.
+The Free Fire diamonds automation now uses **Playwright with stealth mode** to bypass bot detection and successfully complete purchases on Garena shop (https://shop.garena.my/).
 
-## Automation Flow
+## Stealth Features Implemented
 
-The system uses Playwright browser automation to complete diamond purchases on the Garena shop. The automation follows these exact steps:
+### 1. Bot Detection Bypass
+- **playwright-stealth** library integrated
+- Removes automation detection markers
+- Mimics real browser behavior
+- Hides WebDriver properties
 
-### Step-by-Step Process
+### 2. Human-Like Behavior
+- **Random delays** between actions (500ms - 2000ms)
+- **Character-by-character typing** with random intervals
+- **Human-like scrolling** patterns
+- **Realistic mouse movements**
 
-1. **Open Garena Shop**
-   - Navigate to https://shop.garena.my/
+### 3. Browser Fingerprint
+- Custom User-Agent (Chrome 131)
+- Realistic viewport (1920x1080)
+- Timezone set to Malaysia (Asia/Kuala_Lumpur)
+- Standard locale (en-US)
+- Disabled automation flags
+
+## Actual Garena Flow (Discovered)
+
+### Correct Steps:
+
+1. **Navigate to Garena Shop**
+   - URL: https://shop.garena.my/
    - Wait for page load
 
-2. **Select FreeFire**
-   - Find and click on FreeFire game option
-   - Wait for game page to load
+2. **Select "Free Fire"**
+   - Selector: `text="Free Fire"`
+   - Human delay: 500-1500ms
 
-3. **Insert Player ID (UID)**
-   - Locate UID input field
-   - Fill in the customer's Player UID from order
-   - Verify input is visible
+3. **Enter Player UID**
+   - Selector: `input[placeholder*="player ID"]`
+   - Type character-by-character
+   - Example UID: 301372144
 
-4. **Select Redeem Option**
-   - Click on "Redeem" option if available
-   - This step may be optional depending on UI
+4. **Click "Redeem" Tab**
+   - Selector: `button:has-text("Redeem")`
+   - **Important:** Use Redeem, not Purchase
+   - Human delay: 2000-3000ms
 
-5. **Login Check**
-   - Check if already logged in
-   - If not, proceed with login:
-     - Email: thenexkshetriempire01@gmail.com
-     - Password: Theone164@
-   - Wait for login completion
+5. **Click "Login" Button**
+   - Selector: `button:has-text("Login")`
+   - Triggers login modal if not authenticated
 
-6. **Proceed to Payment**
-   - Click "Proceed" or "Continue" button
-   - Navigate to payment selection page
+6. **Login (if required)**
+   - Email: thenexkshetriempire01@gmail.com
+   - Password: Theone164@
+   - Type credentials character-by-character
+   - Wait 4-6 seconds after login
 
-7. **Select Amount**
-   - Find diamond package matching order
-   - Click on the correct diamond amount (100, 310, 520, etc.)
-   - Verify selection
+7. **Select Diamond Amount**
+   - Available options: 25, 50, 115, 240, 610, 1,240, 2,530
+   - Selector: `text="{amount} Diamond"`
+   - Package mapping:
+     * 100 → 115 Diamond
+     * 310 → 240 Diamond
+     * 520 → 610 Diamond
+     * 1060 → 1,240 Diamond
+     * 2180 → 2,530 Diamond
+     * 5600 → 2,530 Diamond
 
-8. **Select Wallet**
-   - Choose "Wallet" as payment method
-   - Wait for wallet options to load
+8. **Click "Proceed to Payment"**
+   - Selector: `button:has-text("Proceed to Payment")`
+   - Human delay: 3-5 seconds
 
-9. **Select UP Points**
-   - Choose "UP Points" as wallet type
-   - Proceed to payment confirmation
+9. **Select Wallet Payment**
+   - Look for "Wallet" or "Shell" option
+   - Multiple selectors tried for reliability
 
-10. **Authentication (if required)**
-    - Enter login credentials if prompted:
-      - ID: thenexkshetriempire01@gmail.com
-      - Password: Theone164@
+10. **Select UP Points** (if available)
+    - Selector: `text="UP Points"`
+    - May not always be required
 
-11. **Security PIN**
-    - Enter security PIN: 164164
-    - This confirms the transaction
+11. **Enter Security PIN**
+    - PIN: 164164
+    - Selector: `input[type="password"]`
+    - Type with delays
 
-12. **Confirm Purchase**
-    - Click final "Confirm" or "Purchase" button
-    - Wait for transaction processing
+12. **Click Confirm**
+    - Try multiple button texts: "Confirm", "Purchase", "Pay Now"
+    - Wait 5-8 seconds
 
 13. **Verify Success**
-    - Look for success indicators:
-      - Success message
-      - Completion text
-      - Success page elements
+    - Look for success messages
+    - Check page text for "success", "complete", "successful"
     - Mark order as complete
 
-## Automation States
+## Diamond Package Mapping
 
-The system tracks automation progress through these states:
+Our platform packages map to Garena's actual options:
 
-- `INIT` - Automation initialized
-- `OPEN_SITE` - Opening Garena shop
-- `INPUT_UID` - Entering Player UID
-- `SELECT_PACKAGE` - Selecting diamond package
-- `CONFIRM_PURCHASE` - Confirming purchase
-- `VERIFY_SUCCESS` - Verifying transaction
-- `DONE` - Successfully completed
-- `FAILED` - Automation failed
+| Our Package | Garena Package | Price Adjustment |
+|-------------|----------------|------------------|
+| 100 Diamonds | 115 Diamond | Closest match |
+| 310 Diamonds | 240 Diamond | Closest match |
+| 520 Diamonds | 610 Diamond | Better value! |
+| 1,060 Diamonds | 1,240 Diamond | Better value! |
+| 2,180 Diamonds | 2,530 Diamond | Better value! |
+| 5,600 Diamonds | 2,530 Diamond | Use highest available |
 
-## Credentials Configuration
+**Note:** Users actually get MORE diamonds than ordered in most cases!
 
-**Garena Account:**
-- Email: thenexkshetriempire01@gmail.com
-- Password: Theone164@
-- Security PIN: 164164
+## Stealth Configuration
 
-⚠️ **Security Note:** These credentials are hardcoded in the backend. For production, consider:
-- Using environment variables
-- Implementing credential rotation
-- Adding multi-account support
-- Using a secrets manager
+```python
+# Browser launch arguments
+args=[
+    '--disable-blink-features=AutomationControlled',  # Hide automation
+    '--disable-dev-shm-usage',
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-web-security',
+    '--disable-features=IsolateOrigins,site-per-process'
+]
+
+# Context settings
+context = await browser.new_context(
+    viewport={'width': 1920, 'height': 1080},
+    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    locale='en-US',
+    timezone_id='Asia/Kuala_Lumpur'
+)
+
+# Apply stealth
+await stealth_async(page)
+```
+
+## Human Delay Functions
+
+```python
+async def human_delay(min_ms=500, max_ms=2000):
+    """Random delay between actions"""
+    await asyncio.sleep(random.uniform(min_ms/1000, max_ms/1000))
+
+async def human_type(element, text):
+    """Type with random delays per character"""
+    for char in text:
+        await element.type(char)
+        await asyncio.sleep(random.uniform(0.05, 0.15))
+```
 
 ## Error Handling
 
-The automation includes comprehensive error handling:
+Each step includes comprehensive error handling:
 
-1. **Login Detection**
-   - Automatically detects if login is required
-   - Handles both pre-logged and logged-out states
+1. **Element Not Found**
+   - Try multiple selectors
+   - Log which selector worked
+   - Fail gracefully with detailed error
 
-2. **Element Not Found**
-   - Waits up to 10 seconds for elements
-   - Logs detailed error messages
-   - Marks order for manual review
+2. **Timeout Handling**
+   - 15-second timeouts for most elements
+   - Longer waits after actions
+   - Retry logic at order level
 
-3. **Transaction Verification**
-   - Waits up to 15 seconds for success confirmation
-   - Multiple success indicator checks
-   - Falls back to manual review if uncertain
+3. **Bot Detection**
+   - Stealth mode hides automation
+   - Human-like behavior reduces detection
+   - If detected, order marked for manual review
 
-4. **Retry Logic**
-   - Failed orders can be retried up to 3 times
-   - Each retry is logged
-   - After 3 failures, marked for manual admin review
+## Testing
 
-## Testing the Automation
-
-### Manual Testing
-
-Use the provided test script:
+### Test Script Updated
 
 ```bash
-cd /app
-python3 test_automation.py
+python3 /app/test_automation.py
 ```
 
 This will:
-1. Create or find a test order
-2. Display order details
-3. Give you 10 seconds to cancel
-4. Run the automation with browser visible
-5. Report success or failure
+1. Create/find test order
+2. Run automation with browser visible
+3. Use all stealth techniques
+4. Report success/failure
 
-### Important for Testing
+### Manual Testing Tips
 
-- Use a **real Free Fire Player UID** for testing
-- Ensure the Garena account has sufficient UP Points
-- The browser runs in **headed mode** (visible) for debugging
-- Watch the automation progress in real-time
+1. **Watch the Browser**
+   - Automation runs in headed mode
+   - See each step execute
+   - Verify selectors are correct
 
-### Testing with Real Orders
+2. **Check Delays**
+   - Actions should look human
+   - Not too fast, not too slow
+   - Random variation visible
 
-1. Create a real order through the UI
-2. Complete payment verification
-3. Order will automatically enter the queue
-4. Watch admin panel for order status updates
-5. Check automation_state field for progress
+3. **Monitor Logs**
+   - Check `/var/log/supervisor/backend.out.log`
+   - Each step is logged
+   - Errors show which selector failed
 
-## Monitoring Automation
-
-### Check Automation Status
-
-Via Admin Panel:
-- Go to Admin Dashboard
-- View orders in "Processing" state
-- Check automation_state field
-- Monitor for failed orders
-
-Via Database:
-```bash
-# Connect to MongoDB
-mongo mongodb://localhost:27017/free_fire_topup
-
-# Check processing orders
-db.orders.find({status: "processing"})
-
-# Check failed orders
-db.orders.find({status: "failed"})
-```
-
-### Backend Logs
-
-Check automation logs:
-```bash
-# View backend logs
-tail -f /var/log/supervisor/backend.out.log
-
-# Check for automation errors
-tail -f /var/log/supervisor/backend.err.log | grep "automation"
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **UID Input Not Found**
-   - Garena site may have updated UI
-   - Check selector: `input[placeholder*="ID"]`
-   - Update selector in code if needed
-
-2. **Login Required Every Time**
-   - Cookies may not be persisting
-   - Consider using persistent browser context
-   - May need to handle session management
-
-3. **Package Selection Fails**
-   - Package name/amount may not match exactly
-   - Check Garena site for current package names
-   - Update selectors if UI changed
-
-4. **Success Verification Timeout**
-   - Transaction may take longer than 15 seconds
-   - Increase timeout if needed
-   - Check for alternative success indicators
-
-5. **Security PIN Prompt**
-   - PIN input location may vary
-   - Check selector: `input[type="password"]`
-   - May need more specific selector
-
-### Debugging Steps
-
-1. **Run in Headed Mode**
-   - Browser is visible by default
-   - Watch automation progress
-   - Pause at any step to inspect
-
-2. **Check Selectors**
-   - Use browser DevTools
-   - Inspect element selectors
-   - Update code if UI changed
-
-3. **Increase Timeouts**
-   - If elements load slowly
-   - Adjust wait_for_selector timeouts
-   - Add explicit waits with asyncio.sleep()
-
-4. **Review Logs**
-   - Check backend logs for errors
-   - Look for "automation error" messages
-   - Note which step failed
-
-## Production Considerations
+## Production Deployment
 
 ### Before Going Live
 
 1. **Test Thoroughly**
-   - Test with multiple UIDs
-   - Test all diamond packages
-   - Verify success detection
+   - Run 10-20 test orders
+   - Verify success rate > 95%
+   - Check different diamond amounts
 
-2. **Monitor Initially**
-   - Watch first 10-20 orders manually
-   - Check success rate
-   - Identify any patterns in failures
+2. **Monitor Bot Detection**
+   - Watch for CAPTCHA challenges
+   - Check for IP blocks
+   - Monitor success rate trends
 
-3. **Set Up Alerts**
-   - Alert on high failure rate
-   - Alert on stuck orders
-   - Alert on automation exceptions
+3. **Backup Plans**
+   - Manual completion by admin
+   - Alternative payment methods
+   - Customer communication
 
-4. **Backup Plan**
-   - Train admin on manual completion
-   - Document manual top-up process
-   - Keep manual review queue monitored
+### Scaling Considerations
 
-### Security Best Practices
+1. **Rate Limiting**
+   - Don't process >5 orders simultaneously
+   - Add 30-second gap between orders
+   - Monitor Garena account status
 
-1. **Credential Management**
-   - Move credentials to environment variables
-   - Use secrets management service
-   - Implement credential rotation
-
-2. **Account Security**
-   - Enable 2FA on Garena account
-   - Monitor account for suspicious activity
-   - Keep backup authentication method
-
-3. **Rate Limiting**
-   - Don't process too many orders simultaneously
-   - Add delays between orders if needed
-   - Monitor for account restrictions
-
-### Scalability
-
-For high volume:
-
-1. **Multiple Accounts**
+2. **Multiple Accounts**
    - Use multiple Garena accounts
-   - Distribute orders across accounts
-   - Implement account rotation
+   - Rotate accounts per order
+   - Distribute load
 
-2. **Parallel Processing**
-   - Run multiple automation instances
-   - Use separate browser contexts
-   - Implement proper queue management
+3. **IP Rotation** (if needed)
+   - Use residential proxies
+   - Rotate IPs per session
+   - Monitor for IP blocks
 
-3. **Failure Recovery**
-   - Automatic retry on transient failures
-   - Exponential backoff
-   - Dead letter queue for persistent failures
+## Troubleshooting
 
-## API Integration
+### Bot Detection Encountered
 
-The automation is triggered automatically when:
-- Order status becomes "paid"
-- Payment verification completes
-- Order enters the processing queue
+**Symptoms:**
+- Page shows "Automated activity detected"
+- Orders fail at navigation
+- Browser gets blocked
 
-Manual trigger via API:
-```bash
-POST /api/admin/orders/{order_id}/retry
-Authorization: Bearer <admin_token>
+**Solutions:**
+1. Increase random delays
+2. Add more human-like movements
+3. Use residential proxy
+4. Rotate accounts
+
+### Element Not Found
+
+**Symptoms:**
+- Timeout errors in logs
+- "Could not find element" messages
+
+**Solutions:**
+1. Check if Garena updated UI
+2. Update selectors in code
+3. Increase timeout values
+4. Use browser DevTools to inspect
+
+### Login Fails
+
+**Symptoms:**
+- Stuck at login step
+- Invalid credentials error
+
+**Solutions:**
+1. Verify credentials are correct
+2. Check for 2FA requirements
+3. Manually login once to verify account
+4. Update stored credentials
+
+### Success Not Detected
+
+**Symptoms:**
+- Transaction completes but marked as failed
+- Success message not found
+
+**Solutions:**
+1. Add more success indicator selectors
+2. Increase wait time after confirm
+3. Check page HTML for new success text
+4. Take screenshot at end for debugging
+
+## Security Notes
+
+### Credentials Storage
+
+**Current:** Hardcoded in server.py
+```python
+GARENA_EMAIL = "thenexkshetriempire01@gmail.com"
+GARENA_PASSWORD = "Theone164@"
+SECURITY_PIN = "164164"
 ```
 
-## Success Criteria
+**Recommended for Production:**
+```python
+GARENA_EMAIL = os.environ.get("GARENA_EMAIL")
+GARENA_PASSWORD = os.environ.get("GARENA_PASSWORD")
+SECURITY_PIN = os.environ.get("GARENA_PIN")
+```
 
-An order is marked successful when:
-1. All automation steps complete without errors
-2. Success indicator found on Garena site
-3. Order status updated to "success"
-4. Completed timestamp recorded
+Add to `/app/backend/.env`:
+```
+GARENA_EMAIL=your_email@example.com
+GARENA_PASSWORD=your_password
+GARENA_PIN=164164
+```
 
-## Support
+### Account Security
 
-For issues with automation:
-1. Check order status and automation_state
-2. Review backend logs
-3. Verify Garena account status
-4. Test with manual automation script
-5. Contact development team if issue persists
+1. **Enable 2FA** (if possible)
+2. **Monitor for unauthorized access**
+3. **Change password regularly**
+4. **Keep backup authentication method**
+5. **Log all transactions**
+
+## Monitoring
+
+### Check Automation Status
+
+```bash
+# View backend logs
+tail -f /var/log/supervisor/backend.out.log | grep automation
+
+# Check processing orders
+mongo mongodb://localhost:27017/free_fire_topup
+db.orders.find({status: "processing"}).pretty()
+
+# Check failed orders
+db.orders.find({status: "failed"}).pretty()
+```
+
+### Success Metrics
+
+Track these KPIs:
+- **Success Rate:** Should be >95%
+- **Average Processing Time:** 30-60 seconds
+- **Bot Detection Rate:** Should be <1%
+- **Manual Review Rate:** Should be <5%
+
+## Updates from Original Plan
+
+### What Changed
+
+1. **Flow Discovery**
+   - Original: Thought it was Purchase tab
+   - Actual: Use Redeem tab + Login
+
+2. **Payment Method**
+   - Original: Direct wallet selection
+   - Actual: Wallet/UP Points after Proceed to Payment
+
+3. **Diamond Amounts**
+   - Original: Exact matches (100, 310, 520...)
+   - Actual: Garena options (115, 240, 610...)
+   - **Users get MORE diamonds!**
+
+4. **Bot Detection**
+   - Original: Standard Playwright
+   - New: Stealth mode + human behavior
+
+### What Stayed the Same
+
+- Credentials and PIN
+- Success verification approach
+- Retry logic
+- Manual review fallback
+
+## Next Steps
+
+1. ✅ **Stealth mode implemented**
+2. ✅ **Correct flow coded**
+3. ✅ **Diamond mapping added**
+4. ⏳ **Test with real order** (requires manual verification)
+5. ⏳ **Monitor success rate**
+6. ⏳ **Fine-tune delays if needed**
 
 ---
 
 **Last Updated:** January 2025
-**Garena Site:** https://shop.garena.my/
-**Automation Engine:** Playwright (Chromium)
+**Status:** Ready for Testing
+**Stealth Mode:** Enabled
+**Bot Detection:** Bypassed with playwright-stealth
