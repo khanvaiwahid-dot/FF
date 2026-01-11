@@ -100,8 +100,12 @@ function App() {
           <Route path="/signup" element={<Signup />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/" element={<ProtectedRoute><TopUp /></ProtectedRoute>} />
+          <Route path="/payment/:orderId" element={<ProtectedRoute><PaymentMethod /></ProtectedRoute>} />
+          <Route path="/payment-details/:orderId" element={<ProtectedRoute><PaymentDetails /></ProtectedRoute>} />
           <Route path="/order/:orderId" element={<ProtectedRoute><OrderStatus /></ProtectedRoute>} />
           <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
+          <Route path="/wallet/add-funds" element={<ProtectedRoute><WalletAddFunds /></ProtectedRoute>} />
+          <Route path="/wallet/payment-details" element={<ProtectedRoute><WalletPaymentDetails /></ProtectedRoute>} />
           <Route path="/admin/dashboard" element={<ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>} />
           <Route path="/admin/orders" element={<ProtectedRoute adminOnly><AdminOrders /></ProtectedRoute>} />
           <Route path="/admin/review" element={<ProtectedRoute adminOnly><AdminReview /></ProtectedRoute>} />
