@@ -83,7 +83,6 @@ class Package(BaseModel):
 
 class CreateOrderRequest(BaseModel):
     player_uid: str
-    server: Optional[str] = None
     package_id: str
 
 class PaymentVerificationRequest(BaseModel):
