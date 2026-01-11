@@ -1,0 +1,123 @@
+{
+  "design_system": {
+    "identity": {
+      "name": "DiamondStore",
+      "tone": "Friendly, Trustworthy, Gamer-Centric",
+      "aesthetic": "Cosmic Neon (Dark Mode)",
+      "archetype": "Electric & Neon"
+    },
+    "typography": {
+      "headings": {
+        "family": "Chivo, sans-serif",
+        "weights": ["700", "900"],
+        "usage": "Main page titles, hero sections, package prices"
+      },
+      "body": {
+        "family": "Manrope, sans-serif",
+        "weights": ["400", "500", "600"],
+        "usage": "Form labels, descriptions, status text"
+      },
+      "mono": {
+        "family": "JetBrains Mono, monospace",
+        "usage": "Transaction IDs, UIDs, Code snippets"
+      }
+    },
+    "colors": {
+      "palette": {
+        "background": {
+          "default": "#0B0B0F",
+          "paper": "#121218",
+          "subtle": "#1A1A24"
+        },
+        "primary": {
+          "main": "#00F0FF",
+          "hover": "#00C2CC",
+          "text": "#000000"
+        },
+        "secondary": {
+          "main": "#B026FF",
+          "hover": "#8A1CC4",
+          "text": "#FFFFFF"
+        },
+        "accent": {
+          "main": "#FFBA00",
+          "glow": "rgba(255, 186, 0, 0.5)"
+        },
+        "status": {
+          "success": "#00FF94",
+          "error": "#FF2E2E",
+          "warning": "#FFBA00",
+          "info": "#00F0FF"
+        }
+      },
+      "tailwind_config": {
+        "extend": {
+          "colors": {
+            "background": "#0B0B0F",
+            "card": "#121218",
+            "primary": "#00F0FF",
+            "secondary": "#B026FF",
+            "accent": "#FFBA00"
+          }
+        }
+      }
+    },
+    "layout": {
+      "spacing": "Generous (2x standard)",
+      "container": "max-w-md mx-auto md:max-w-4xl",
+      "grid": {
+        "packages": "grid-cols-2 md:grid-cols-3 gap-4",
+        "dashboard": "grid-cols-1 md:grid-cols-4 gap-6"
+      }
+    },
+    "components": {
+      "buttons": {
+        "style": "pill",
+        "primary": "bg-primary text-black font-bold hover:shadow-[0_0_20px_rgba(0,240,255,0.4)] transition-all",
+        "secondary": "bg-secondary/10 text-secondary border border-secondary/20 hover:bg-secondary/20"
+      },
+      "cards": {
+        "style": "glassmorphism",
+        "base": "bg-card/60 backdrop-blur-xl border border-white/5 rounded-2xl hover:border-primary/30 transition-colors"
+      },
+      "inputs": {
+        "style": "minimal",
+        "base": "bg-white/5 border-white/10 focus:border-primary focus:ring-1 focus:ring-primary rounded-xl h-12"
+      }
+    },
+    "assets": {
+      "images": {
+        "hero_bg": "https://images.unsplash.com/photo-1743816778493-64cf93ca3291?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "hero_character": "https://images.unsplash.com/photo-1630412612770-dc85fccc79d5?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "diamond_icon": "https://images.unsplash.com/photo-1670593378754-3f49ced70991?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "wallet_icon": "https://images.unsplash.com/photo-1647485684426-4e4a53cb87a9?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "login_bg": "https://images.unsplash.com/photo-1674453736349-029f0ffc863a?crop=entropy&cs=srgb&fm=jpg&q=85"
+      },
+      "icons": {
+        "library": "lucide-react",
+        "style": "stroke-width-1.5"
+      }
+    }
+  },
+  "implementation_guide": {
+    "steps": [
+      "1. Setup Tailwind config with new colors and fonts.",
+      "2. Create 'Layout' component with Bottom Navigation for mobile.",
+      "3. Build 'PackageCard' component with selection state (glow effect).",
+      "4. Implement 'TopUpPage' with UID input and Package Grid.",
+      "5. Build 'WalletPage' with transaction history list.",
+      "6. Create Admin Dashboard with 'Control Room' grid layout."
+    ],
+    "rules": [
+      "Mobile-first: Always design for 375px width first.",
+      "No pure black: Use #0B0B0F for backgrounds.",
+      "Glow effects: Use drop-shadows on active elements.",
+      "Feedback: Show toast notifications for all actions (success/error)."
+    ]
+  },
+  "universal_guidelines": {
+    "do_not_use": ["gradients on text", "pure white backgrounds", "default blue links"],
+    "must_use": ["loading skeletons", "hover states", "micro-interactions"],
+    "accessibility": "Ensure text contrast > 4.5:1. Use aria-labels on icon buttons."
+  }
+}
