@@ -77,9 +77,62 @@ class Package(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str
     name: str
-    diamonds: int
+    type: str  # "diamond", "membership", "evo_access"
+    amount: int  # diamonds or days
     price: float
     active: bool
+    sort_order: int
+    created_at: str
+    updated_at: str
+
+class CreatePackageRequest(BaseModel):
+    name: str
+    type: str
+    amount: int
+    price: float
+    active: bool = True
+
+class UpdatePackageRequest(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    amount: Optional[int] = None
+    price: Optional[float] = None
+    active: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+class GarenaAccount(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    name: str
+    email: str
+    password: str  # encrypted
+    pin: str  # encrypted
+    active: bool
+    last_used: Optional[str] = None
+    created_at: str
+
+class CreateGarenaAccountRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+    pin: str
+
+class UpdateGarenaAccountRequest(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
+    pin: Optional[str] = None
+    active: Optional[bool] = None
+
+class CreateUserRequest(BaseModel):
+    username: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    password: str
+
+class UpdateUserRequest(BaseModel):
+    blocked: Optional[bool] = None
+    password: Optional[str] = None
 
 class CreateOrderRequest(BaseModel):
     player_uid: str
