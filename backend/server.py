@@ -153,9 +153,11 @@ class Order(BaseModel):
     username: str
     player_uid: str
     server: Optional[str] = None
+    package_id: str
     package_name: str
-    diamonds: int
-    amount: float
+    package_type: str
+    amount: int  # diamonds or days
+    locked_price: float  # Price at time of order
     wallet_used: float
     payment_amount: float
     payment_last3digits: Optional[str] = None
