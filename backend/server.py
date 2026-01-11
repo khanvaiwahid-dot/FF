@@ -1179,34 +1179,28 @@ async def run_automation(order: dict) -> bool:
                 {"id": order["id"]},
                 {"$set": {"automation_state": "SELECT_PACKAGE"}}
             )
-            logging.info(f"Step 6: Selecting {order['diamonds']} diamonds")
+            logging.info(f"Step 6: Selecting {order['amount']} {order['package_type']}")
             try:
                 # Scroll to see options
                 await page.evaluate('window.scrollTo(0, 600)')
                 await human_delay(1000, 2000)
                 
-                # Map our packages to Garena's available options
-                garena_amounts = {
-                    100: "115",  # Closest to 100
-                    310: "240",  # Closest to 310
-                    520: "610",  # Closest to 520
-                    1060: "1,240",  # Closest to 1060
-                    2180: "2,530",  # Closest to 2180
-                    5600: "2,530"   # Use highest available
-                }
-                
-                target_amount = garena_amounts.get(order["diamonds"], str(order["diamonds"]))
+                # Select based on exact amount from order
+                target_amount = str(order["amount"])
+                if order["amount"] >= 1000:
+                    # Format with comma for thousands
+                    target_amount = f"{order['amount']:,}"
                 
                 diamond_selector = await page.wait_for_selector(
-                    f'text="{target_amount} Diamond"',
+                    f'text="{target_amount}"',
                     timeout=15000
                 )
                 await human_delay(500, 1500)
                 await diamond_selector.click()
                 await human_delay(2000, 3000)
-                logging.info(f"Selected {target_amount} Diamond package")
+                logging.info(f"Selected {target_amount} package")
             except Exception as e:
-                logging.error(f"Could not select diamond package: {e}")
+                logging.error(f"Could not select package: {e}")
                 await browser.close()
                 return False
             
