@@ -785,6 +785,146 @@ async def receive_sms(message: SMSMessage):
     
     return {"message": "SMS received and processed"}
 
+# ===== Admin SMS Management =====
+@api_router.get("/admin/sms")
+async def admin_list_sms(user_data: dict = Depends(get_current_admin)):
+    """List all SMS messages for admin review"""
+    messages = await db.sms_messages.find({}, {"_id": 0}).sort("parsed_at", -1).limit(100).to_list(100)
+    return messages
+
+@api_router.post("/admin/sms/input")
+async def admin_input_sms(message: SMSMessage, user_data: dict = Depends(get_current_admin)):
+    """Admin manually inputs SMS message for payment verification"""
+    parsed = parse_sms_message(message.raw_message)
+    
+    sms_doc = {
+        "id": str(uuid.uuid4()),
+        "raw_message": message.raw_message,
+        "amount": parsed["amount"],
+        "last3digits": parsed["last3digits"],
+        "rrn": parsed["rrn"],
+        "method": parsed["method"],
+        "remark": parsed["remark"],
+        "parsed_at": datetime.now(timezone.utc).isoformat(),
+        "used": False,
+        "matched_order_id": None,
+        "input_by_admin": user_data["user_id"]
+    }
+    
+    await db.sms_messages.insert_one(sms_doc)
+    
+    matched_order = None
+    overpayment_credited = 0
+    
+    # Try to match with pending orders - support overpayment
+    if parsed["amount"] and parsed["last3digits"]:
+        # Check for duplicate RRN
+        if parsed["rrn"]:
+            existing = await db.orders.find_one({"payment_rrn": parsed["rrn"]})
+            if existing:
+                return {
+                    "message": f"RRN already used for order #{existing['id'][:8].upper()}",
+                    "parsed": parsed,
+                    "matched": False,
+                    "duplicate_rrn": True
+                }
+        
+        # Find orders where payment amount is <= received amount (allows overpayment)
+        pending_orders = await db.orders.find({
+            "status": {"$in": ["pending_payment", "wallet_partial_paid", "manual_review"]},
+            "payment_last3digits": parsed["last3digits"]
+        }, {"_id": 0}).sort("created_at", 1).to_list(10)
+        
+        for order in pending_orders:
+            exact_required = order.get("exact_payment_required", order.get("payment_amount", 0))
+            if parsed["amount"] >= exact_required:
+                # Process payment with overpayment handling
+                overpayment_credited = await process_payment_with_overpayment(
+                    order, 
+                    parsed["amount"], 
+                    parsed["rrn"], 
+                    message.raw_message
+                )
+                
+                await db.sms_messages.update_one(
+                    {"id": sms_doc["id"]},
+                    {"$set": {"used": True, "matched_order_id": order["id"]}}
+                )
+                
+                await add_to_queue(order["id"])
+                matched_order = order
+                
+                # Log admin action
+                await db.admin_actions.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "admin_id": user_data["user_id"],
+                    "action_type": "input_sms",
+                    "target_id": order["id"],
+                    "details": f"Manually input SMS, matched to order #{order['id'][:8].upper()}, Amount: ₹{parsed['amount']}, Overpayment: ₹{overpayment_credited}",
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+                break
+    
+    if matched_order:
+        return {
+            "message": f"SMS matched to order #{matched_order['id'][:8].upper()}! Order is being processed.",
+            "parsed": parsed,
+            "matched": True,
+            "order_id": matched_order["id"],
+            "overpayment_credited": overpayment_credited
+        }
+    else:
+        return {
+            "message": "SMS saved but no matching order found. It will auto-match when an order with matching details is submitted.",
+            "parsed": parsed,
+            "matched": False,
+            "sms_id": sms_doc["id"]
+        }
+
+@api_router.post("/admin/sms/match/{sms_id}")
+async def admin_manual_match_sms(sms_id: str, order_id: str, user_data: dict = Depends(get_current_admin)):
+    """Admin manually matches an SMS to a specific order"""
+    sms = await db.sms_messages.find_one({"id": sms_id}, {"_id": 0})
+    if not sms:
+        raise HTTPException(status_code=404, detail="SMS not found")
+    
+    if sms.get("used"):
+        raise HTTPException(status_code=400, detail="SMS already used for another order")
+    
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Process payment with overpayment handling
+    overpayment = await process_payment_with_overpayment(
+        order, 
+        sms["amount"], 
+        sms.get("rrn"), 
+        sms["raw_message"]
+    )
+    
+    await db.sms_messages.update_one(
+        {"id": sms_id},
+        {"$set": {"used": True, "matched_order_id": order_id}}
+    )
+    
+    await add_to_queue(order_id)
+    
+    # Log admin action
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "manual_match_sms",
+        "target_id": order_id,
+        "details": f"Manually matched SMS to order #{order_id[:8].upper()}, Overpayment: ₹{overpayment}",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {
+        "message": f"SMS manually matched to order #{order_id[:8].upper()}!",
+        "overpayment_credited": overpayment
+    }
+
 # ===== Admin Package Management =====
 @api_router.get("/admin/packages", response_model=List[Package])
 async def admin_list_packages(user_data: dict = Depends(get_current_admin)):
