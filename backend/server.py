@@ -431,6 +431,18 @@ async def get_wallet(user_data: dict = Depends(get_current_user)):
         "transactions": transactions
     }
 
+@api_router.get("/user/orders")
+async def get_user_orders(user_data: dict = Depends(get_current_user)):
+    if user_data["type"] != "user":
+        raise HTTPException(status_code=403, detail="User access required")
+    
+    orders = await db.orders.find(
+        {"user_id": user_data["user_id"]}, 
+        {"_id": 0}
+    ).sort("created_at", -1).limit(100).to_list(100)
+    
+    return orders
+
 # ===== Package Endpoints =====
 @api_router.get("/packages/list", response_model=List[Package])
 async def list_packages():
