@@ -6,7 +6,7 @@ import { useAuth, API } from '@/App';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Gem, Wallet as WalletIcon, LogOut, User, ChevronRight } from 'lucide-react';
+import { Gem, Wallet as WalletIcon, LogOut, ChevronRight } from 'lucide-react';
 
 const TopUp = () => {
   const navigate = useNavigate();
@@ -14,7 +14,6 @@ const TopUp = () => {
   const [packages, setPackages] = useState([]);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [playerUID, setPlayerUID] = useState('');
-  const [server, setServer] = useState('');
   const [loading, setLoading] = useState(false);
   const [walletBalance, setWalletBalance] = useState(user?.walletBalance || 0);
 
@@ -58,7 +57,6 @@ const TopUp = () => {
     try {
       const response = await axios.post(`${API}/orders/create`, {
         player_uid: playerUID,
-        server: server || null,
         package_id: selectedPackage.id
       });
 
@@ -69,8 +67,8 @@ const TopUp = () => {
         fetchUserProfile();
         navigate(`/order/${order_id}`);
       } else {
-        toast.success('Order created! Please complete payment.');
-        navigate(`/order/${order_id}`);
+        // Navigate to payment method selection
+        navigate(`/payment/${order_id}`);
       }
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create order');
@@ -144,16 +142,11 @@ const TopUp = () => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="server" className="text-gray-300">Server (Optional)</Label>
-            <Input
-              id="server"
-              data-testid="server-input"
-              type="text"
-              placeholder="e.g., India, Global"
-              value={server}
-              onChange={(e) => setServer(e.target.value)}
-              className="bg-white/5 border-white/10 focus:border-primary focus:ring-1 focus:ring-primary rounded-xl h-12 text-white"
-            />
+            <Label className="text-gray-300">Server</Label>
+            <div className="bg-white/5 border border-white/10 rounded-xl h-12 flex items-center px-4">
+              <span className="text-white font-semibold">🇧🇩 Bangladesh</span>
+            </div>
+            <p className="text-xs text-gray-500">Server is fixed to Bangladesh</p>
           </div>
         </div>
 
@@ -204,6 +197,10 @@ const TopUp = () => {
                 <span className="text-white font-semibold">{selectedPackage.name}</span>
               </div>
               <div className="flex justify-between text-sm">
+                <span className="text-gray-400">Server</span>
+                <span className="text-white font-semibold">🇧🇩 Bangladesh</span>
+              </div>
+              <div className="flex justify-between text-sm">
                 <span className="text-gray-400">Amount</span>
                 <span className="text-white font-semibold">₹{selectedPackage.price}</span>
               </div>
@@ -211,25 +208,6 @@ const TopUp = () => {
                 <span className="text-gray-400">Wallet Balance</span>
                 <span className="text-primary font-semibold">₹{walletBalance.toFixed(2)}</span>
               </div>
-              
-              {walletBalance > 0 && (
-                <>
-                  <div className="border-t border-white/10 pt-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">Wallet Used</span>
-                      <span className="text-success font-semibold">
-                        -₹{Math.min(walletBalance, selectedPackage.price).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex justify-between font-bold">
-                    <span className="text-white">Payment Required</span>
-                    <span className="text-primary text-lg">
-                      ₹{Math.max(0, selectedPackage.price - walletBalance).toFixed(2)}
-                    </span>
-                  </div>
-                </>
-              )}
             </div>
 
             <Button
