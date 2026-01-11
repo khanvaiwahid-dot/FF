@@ -53,6 +53,17 @@ const TopUp = () => {
       return;
     }
 
+    // Validate UID: minimum 8 digits, digits only
+    const cleanUID = playerUID.replace(/\D/g, '');
+    if (cleanUID.length < 8) {
+      toast.error('Player UID must be at least 8 digits');
+      return;
+    }
+    if (!/^\d+$/.test(playerUID)) {
+      toast.error('Player UID must contain only digits');
+      return;
+    }
+
     setLoading(true);
 
     try {
