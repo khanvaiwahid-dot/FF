@@ -118,9 +118,13 @@ const Wallet = () => {
                         <p className="text-gray-900 font-semibold">
                           {transaction.type === 'order_payment' ? 'Order Payment' : 
                            transaction.type === 'wallet_topup' ? 'Wallet Top-up' : 
+                           transaction.type === 'overpayment_credit' ? 'Overpayment Credit' :
                            transaction.type}
                         </p>
                         <p className="text-xs text-gray-500">{formatDate(transaction.created_at)}</p>
+                        {transaction.description && (
+                          <p className="text-xs text-gray-500">{transaction.description}</p>
+                        )}
                       </div>
                     </div>
                     <div className="text-right">
@@ -129,7 +133,7 @@ const Wallet = () => {
                       }`}>
                         {transaction.amount > 0 ? '+' : ''}₹{Math.abs(transaction.amount).toFixed(2)}
                       </p>
-                      <p className="text-xs text-gray-500">Balance: ₹{transaction.balance_after.toFixed(2)}</p>
+                      <p className="text-xs text-gray-500">Balance: ₹{transaction.balance_after?.toFixed(2) || '0.00'}</p>
                     </div>
                   </div>
                 </div>
