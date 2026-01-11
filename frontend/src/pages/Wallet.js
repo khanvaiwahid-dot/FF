@@ -4,26 +4,17 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { useAuth, API } from '@/App';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Wallet as WalletIcon, ArrowLeft, Plus, Minus, Gem } from 'lucide-react';
+import { Gem, Wallet as WalletIcon, ArrowLeft, Plus, Minus, History } from 'lucide-react';
 
 const Wallet = () => {
   const navigate = useNavigate();
   const { user, updateWalletBalance } = useAuth();
   const [walletData, setWalletData] = useState({ balance: 0, transactions: [] });
   const [loading, setLoading] = useState(true);
-  const [showAddFunds, setShowAddFunds] = useState(false);
-  const [addFundsForm, setAddFundsForm] = useState({
-    amount: '',
-    last_3_digits: '',
-    payment_method: '',
-    remark: ''
-  });
-  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     fetchWallet();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchWallet = async () => {
@@ -38,33 +29,6 @@ const Wallet = () => {
     }
   };
 
-  const handleAddFunds = async () => {
-    if (!addFundsForm.amount || !addFundsForm.last_3_digits || !addFundsForm.payment_method) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-
-    setSubmitting(true);
-
-    try {
-      // Create a wallet top-up order (similar to regular orders but for wallet)
-      const response = await axios.post(`${API}/sms/receive`, {
-        raw_message: `Wallet top-up: Rs ${addFundsForm.amount} from XXX****${addFundsForm.last_3_digits} for RRN ${Date.now()}, ${addFundsForm.remark} /${addFundsForm.payment_method}`
-      });
-
-      toast.success('Payment submitted! We\'ll verify and add to your wallet shortly.');
-      setShowAddFunds(false);
-      setAddFundsForm({ amount: '', last_3_digits: '', payment_method: '', remark: '' });
-      
-      // Refresh wallet
-      setTimeout(fetchWallet, 2000);
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit payment');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const formatDate = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -72,46 +36,46 @@ const Wallet = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-primary">Loading wallet...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
-      <div className="bg-card/80 backdrop-blur-sm border-b border-white/5 sticky top-0 z-10">
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-3">
           <button
             onClick={() => navigate('/')}
             data-testid="back-button"
-            className="text-gray-400 hover:text-white"
+            className="text-gray-600 hover:text-gray-900"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-lg font-heading font-bold text-white" data-testid="wallet-title">My Wallet</h1>
-            <p className="text-xs text-gray-400">@{user?.username}</p>
+            <h1 className="text-lg font-heading font-bold text-gray-900" data-testid="wallet-title">My Wallet</h1>
+            <p className="text-xs text-gray-600">@{user?.username}</p>
           </div>
         </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
         {/* Balance Card */}
-        <div className="bg-gradient-to-br from-primary/20 to-secondary/20 backdrop-blur-xl border border-white/10 rounded-2xl p-8">
+        <div className="bg-orange-50 border border-orange-200 rounded-2xl p-8">
           <div className="flex items-center justify-center gap-3 mb-6">
-            <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center">
-              <WalletIcon className="w-8 h-8 text-white" />
+            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+              <WalletIcon className="w-8 h-8 text-primary" />
             </div>
           </div>
           <div className="text-center">
-            <p className="text-gray-300 text-sm mb-2">Available Balance</p>
-            <p className="text-5xl font-heading font-bold text-white mb-6" data-testid="wallet-balance">₹{walletData.balance.toFixed(2)}</p>
+            <p className="text-gray-600 text-sm mb-2">Available Balance</p>
+            <p className="text-5xl font-heading font-bold text-gray-900 mb-6" data-testid="wallet-balance">₹{walletData.balance.toFixed(2)}</p>
             <Button
               onClick={() => navigate('/wallet/add-funds')}
               data-testid="add-funds-button"
-              className="bg-primary text-black font-bold h-12 px-8 rounded-full hover:shadow-[0_0_20px_rgba(0,240,255,0.4)] transition-all"
+              className="bg-primary hover:bg-primary-hover text-white font-bold h-12 px-8 rounded-full transition-all"
             >
               <Plus className="w-5 h-5 mr-2" />
               Add Funds
@@ -120,12 +84,15 @@ const Wallet = () => {
         </div>
 
         {/* Transaction History */}
-        <div className="bg-card/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 space-y-4">
-          <h2 className="text-xl font-heading font-bold text-white">Transaction History</h2>
+        <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-4 shadow-sm">
+          <div className="flex items-center gap-2">
+            <History className="w-5 h-5 text-gray-700" />
+            <h2 className="text-xl font-heading font-bold text-gray-900">Transaction History</h2>
+          </div>
           
           {walletData.transactions.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
-              <WalletIcon className="w-12 h-12 mx-auto mb-2 opacity-50" />
+            <div className="text-center py-8 text-gray-500">
+              <WalletIcon className="w-12 h-12 mx-auto mb-2 text-gray-400" />
               <p>No transactions yet</p>
             </div>
           ) : (
@@ -134,35 +101,35 @@ const Wallet = () => {
                 <div
                   key={transaction.id}
                   data-testid={`transaction-${transaction.id}`}
-                  className="bg-white/5 border border-white/5 rounded-xl p-4 hover:border-white/10 transition-colors"
+                  className="bg-gray-50 border border-gray-200 rounded-xl p-4 hover:border-gray-300 transition-colors"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                        transaction.amount > 0 ? 'bg-success/10' : 'bg-error/10'
+                        transaction.amount > 0 ? 'bg-green-100' : 'bg-red-100'
                       }`}>
                         {transaction.amount > 0 ? (
-                          <Plus className="w-5 h-5 text-success" />
+                          <Plus className="w-5 h-5 text-green-600" />
                         ) : (
-                          <Minus className="w-5 h-5 text-error" />
+                          <Minus className="w-5 h-5 text-red-600" />
                         )}
                       </div>
                       <div>
-                        <p className="text-white font-semibold">
+                        <p className="text-gray-900 font-semibold">
                           {transaction.type === 'order_payment' ? 'Order Payment' : 
                            transaction.type === 'wallet_topup' ? 'Wallet Top-up' : 
                            transaction.type}
                         </p>
-                        <p className="text-xs text-gray-400">{formatDate(transaction.created_at)}</p>
+                        <p className="text-xs text-gray-500">{formatDate(transaction.created_at)}</p>
                       </div>
                     </div>
                     <div className="text-right">
                       <p className={`text-lg font-bold ${
-                        transaction.amount > 0 ? 'text-success' : 'text-error'
+                        transaction.amount > 0 ? 'text-green-600' : 'text-red-600'
                       }`}>
                         {transaction.amount > 0 ? '+' : ''}₹{Math.abs(transaction.amount).toFixed(2)}
                       </p>
-                      <p className="text-xs text-gray-400">Balance: ₹{transaction.balance_after.toFixed(2)}</p>
+                      <p className="text-xs text-gray-500">Balance: ₹{transaction.balance_after.toFixed(2)}</p>
                     </div>
                   </div>
                 </div>
@@ -173,15 +140,23 @@ const Wallet = () => {
       </div>
 
       {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-card/80 backdrop-blur-xl border-t border-white/5 z-20">
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-20 shadow-lg">
         <div className="max-w-4xl mx-auto px-4 py-3 flex justify-around">
           <button
             onClick={() => navigate('/')}
             data-testid="nav-topup"
-            className="flex flex-col items-center gap-1 text-gray-400 hover:text-white transition-colors"
+            className="flex flex-col items-center gap-1 text-gray-500 hover:text-primary transition-colors"
           >
             <Gem className="w-5 h-5" />
             <span className="text-xs">Top-Up</span>
+          </button>
+          <button
+            onClick={() => navigate('/orders')}
+            data-testid="nav-orders"
+            className="flex flex-col items-center gap-1 text-gray-500 hover:text-primary transition-colors"
+          >
+            <History className="w-5 h-5" />
+            <span className="text-xs">Orders</span>
           </button>
           <button
             data-testid="nav-wallet"
