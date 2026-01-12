@@ -3282,14 +3282,35 @@ async def initialize_data():
     if admin:
         return {"message": "Already initialized"}
     
-    # Create admin
+    # Create admin with ADMIN role
     admin_doc = {
         "id": str(uuid.uuid4()),
         "username": "admin",
         "password_hash": hash_password("admin123"),
+        "role": "ADMIN",
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.admins.insert_one(admin_doc)
+    
+    # Create staff user
+    staff_doc = {
+        "id": str(uuid.uuid4()),
+        "username": "staff",
+        "password_hash": hash_password("staff123"),
+        "role": "STAFF",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.admins.insert_one(staff_doc)
+    
+    # Initialize system settings
+    settings = DEFAULT_SYSTEM_SETTINGS.copy()
+    settings["created_at"] = datetime.now(timezone.utc).isoformat()
+    settings["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.system_settings.update_one(
+        {"id": "system_settings"},
+        {"$set": settings},
+        upsert=True
+    )
     
     # Create packages (prices in paisa)
     packages = [
@@ -3346,8 +3367,10 @@ async def initialize_data():
     await db.orders.create_index("sms_fingerprint", unique=True, sparse=True)
     await db.sms_messages.create_index("fingerprint", unique=True)
     await db.sms_messages.create_index("rrn", sparse=True)
+    await db.audit_logs.create_index("created_at")
+    await db.system_alerts.create_index("created_at")
     
-    return {"message": "Initialization complete. Admin: admin/admin123, Test user: testclient/test123"}
+    return {"message": "Initialization complete. Admin: admin/admin123, Staff: staff/staff123, Test user: testclient/test123"}
 
 # ===== CORS & APP SETUP =====
 
