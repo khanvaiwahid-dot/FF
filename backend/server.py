@@ -2234,9 +2234,9 @@ async def admin_wallet_redeem(user_id: str, request: AdminWalletRedeemRequest, u
     return {
         "message": f"Successfully redeemed ₹{paisa_to_rupees(request.amount_paisa):.2f} from {user['username']}'s wallet",
         "order_id": order_id,
-        "amount_redeemed": paisa_to_rupees(request.amount_paisa),
-        "old_balance": paisa_to_rupees(old_balance),
-        "new_balance": paisa_to_rupees(new_balance)
+        "amount_redeemed_paisa": request.amount_paisa,
+        "old_balance_paisa": old_balance,
+        "new_balance_paisa": new_balance
     }
 
 @api_router.get("/admin/action-logs")
