@@ -1214,9 +1214,17 @@ async def admin_login(request: Request, login_data: LoginRequest):
     if not admin or not verify_password(login_data.password, admin["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid admin credentials")
     
-    token = create_access_token({"sub": admin["id"], "type": "admin", "username": admin["username"]})
+    # Get role (default to ADMIN for existing admins)
+    role = admin.get("role", "ADMIN")
     
-    return TokenResponse(token=token, user_type="admin", username=admin["username"])
+    token = create_access_token({
+        "sub": admin["id"], 
+        "type": "admin", 
+        "username": admin["username"],
+        "role": role
+    })
+    
+    return TokenResponse(token=token, user_type="admin", username=admin["username"], role=role)
 
 @api_router.post("/admin/reset-password")
 async def admin_reset_password(reset_data: ResetPasswordRequest, user_data: dict = Depends(get_current_admin)):
