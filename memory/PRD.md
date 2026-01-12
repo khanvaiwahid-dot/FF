@@ -21,14 +21,15 @@ Build a fully automated Free Fire diamonds top-up platform with the following re
 - Admin authentication with JWT
 - Products API with full CRUD operations
 - **Integer-based currency system (paisa/cents)** - All monetary values stored as integers
-- **Unified Orders System** - Both product_topup and wallet_load orders in single collection
+- **Unified Orders System** - Both product_topup and wallet_load orders in single collection with `order_type` field
 - **Payment Rounding Policy** - Round up to nearest 1 (<₹100), nearest 5 (₹100-500), nearest 10 (>₹500)
 - **Overpayment Handling** - Auto-credit to wallet with safety checks for suspicious amounts
 - **SMS Payment Verification** - SHA256 fingerprint for uniqueness, RRN tracking
-- Garena Accounts API with encrypted credentials (using cryptography library)
+- Garena Accounts API with encrypted credentials
 - User Management API (create, block/unblock, password reset, soft delete)
 - Dashboard stats endpoint with analytics
 - **Order Status System**: pending_payment, paid, queued, processing, success, failed, manual_review, suspicious, duplicate_payment, expired, invalid_uid, refunded
+- **Admin Order Edit API** - PUT /api/admin/orders/{order_id} for updating player_uid, status, notes
 
 ### ✅ Frontend - Complete
 - **Garena-style theme** (white/orange/red) applied consistently across all pages
@@ -39,7 +40,13 @@ Build a fully automated Free Fire diamonds top-up platform with the following re
 - Admin Products Management (view, edit, delete)
 - Admin Garena Accounts Management (CRUD with PIN field)
 - Admin Users Management (view, block/unblock, password reset)
-- **Admin Orders page** - List all orders, filter by status, manual actions
+- **Admin All Orders page** - Shows ALL orders (wallet_load + product_topup) with:
+  - Filter by order_type (All Types, Product Top-up, Wallet Load)
+  - Filter by status (All Status, success, pending_payment, paid, queued, processing, failed, manual_review)
+  - Search by order ID, username, or UID
+  - View modal with full order details
+  - Edit modal for updating player_uid, status, and notes
+  - Retry/Mark Success actions for failed orders
 - **Admin Review page** - Queue for suspicious/failed orders needing attention
 - **Admin Payments page** - Unmatched SMS payments inbox
 - Admin SMS Inbox - Input payment SMS, view parsed data, manual matching
@@ -50,21 +57,36 @@ Build a fully automated Free Fire diamonds top-up platform with the following re
 - Fixed Bangladesh server display
 - Bottom navigation with 3 tabs (Top Up, Orders, Wallet)
 
-### ✅ Database - Complete
-- MongoDB collections: users, admins, packages, orders, garena_accounts, wallet_transactions, sms_messages, admin_actions
-- **Integer currency fields**: price_paisa, wallet_balance_paisa, locked_price_paisa, etc.
-- **Unique indexes**: payment_rrn, sms_fingerprint for duplicate prevention
-- 12 products initialized:
-  - Diamonds: 25, 50, 115, 240, 610, 1,240, 2,530
-  - Memberships: Weekly (7 days), Monthly (30 days)
-  - Evo Access: 3D, 7D, 30D
+### ✅ Price Update System - Verified Working
+- Admin can update package prices via PUT /api/admin/packages/{id}
+- New orders immediately use the new `price_paisa` value
+- Old orders retain their original `locked_price_paisa` value (immutable)
+- Packages API returns fresh prices without caching
 
 ---
 
 ## Test Results (Jan 12, 2026)
-- **Backend API Tests:** 26/26 PASSED (100%)
-- **Frontend UI Tests:** All flows verified working
-- All authentication, orders, wallet, admin features tested and passing
+- **Iteration 2:** 26/26 tests PASSED - Basic functionality
+- **Iteration 3:** 16/16 tests PASSED - Price update flow + Admin orders
+- **Total:** 42 tests passing
+
+### Verified Features (Iteration 3):
+| Feature | Status |
+|---------|--------|
+| Price update affects new orders | ✅ PASS |
+| Old orders retain locked_price | ✅ PASS |
+| Packages API no caching | ✅ PASS |
+| Admin orders shows all types | ✅ PASS |
+| Filter by order_type | ✅ PASS |
+| Filter by status | ✅ PASS |
+| Combined filters | ✅ PASS |
+| Admin view order modal | ✅ PASS |
+| Admin edit player_uid | ✅ PASS |
+| Admin edit status | ✅ PASS |
+| Admin edit notes | ✅ PASS |
+| Wallet load order creation | ✅ PASS |
+| Wallet load visible in admin | ✅ PASS |
+| Wallet load filterable | ✅ PASS |
 
 ---
 
@@ -87,13 +109,18 @@ Build a fully automated Free Fire diamonds top-up platform with the following re
 │   │   ├── App.js        # Main router with auth context
 │   │   ├── index.css     # Global styles with Garena theme
 │   │   ├── pages/        # All page components (light theme)
+│   │   │   ├── AdminOrders.js  # All orders with filters, view/edit modal
+│   │   │   ├── AdminReview.js  # Manual review queue
+│   │   │   └── ...
 │   │   └── components/   # Shadcn UI components
 │   ├── tailwind.config.js # Tailwind with Garena colors
 │   └── package.json
 ├── tests/
-│   └── test_freefire_topup.py  # Backend API tests
+│   ├── test_freefire_topup.py              # Basic API tests (26)
+│   └── test_price_update_and_admin_orders.py # Price & admin tests (16)
 ├── test_reports/
-│   └── iteration_*.json  # Test results
+│   ├── iteration_2.json
+│   └── iteration_3.json
 └── memory/
     └── PRD.md            # This file
 ```
@@ -101,18 +128,16 @@ Build a fully automated Free Fire diamonds top-up platform with the following re
 ### Key API Endpoints
 - `/api/auth/signup`, `/api/auth/login` - User auth
 - `/api/admin/login` - Admin auth
-- `/api/packages/list` - Public packages list
-- `/api/admin/packages` - Admin packages CRUD
-- `/api/admin/garena-accounts` - Garena accounts CRUD
-- `/api/admin/users` - User management CRUD
-- `/api/admin/dashboard` - Dashboard stats
-- `/api/admin/orders` - Admin order management
-- `/api/admin/review-queue` - Manual review queue
-- `/api/orders/create` - Create order
-- `/api/orders/wallet-load` - Create wallet load order
+- `/api/packages/list` - Public packages list (fresh, no cache)
+- `/api/admin/packages/{id}` - Admin package CRUD (price_rupees -> price_paisa)
+- `/api/admin/orders` - Admin orders list (supports order_type, status filters)
+- `/api/admin/orders/{id}` - GET order details, PUT update order
+- `/api/admin/orders/{id}/retry` - Retry failed order
+- `/api/admin/orders/{id}/mark-success` - Manual completion
+- `/api/orders/create` - Create product_topup order (uses current package price_paisa)
+- `/api/orders/wallet-load` - Create wallet_load order
 - `/api/user/orders` - User order list
 - `/api/user/wallet` - User wallet with transactions
-- `/api/sms/receive` - SMS payment receiver
 
 ---
 
