@@ -26,6 +26,14 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+def get_real_ip(request: Request) -> str:
+    """Get real IP address, considering X-Forwarded-For for proxy setups"""
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        # X-Forwarded-For can contain multiple IPs, the first one is the client
+        return forwarded_for.split(",")[0].strip()
+    return get_remote_address(request)
+
 # Background scheduler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -40,8 +48,8 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Rate limiter setup
-limiter = Limiter(key_func=get_remote_address)
+# Rate limiter setup with proxy support
+limiter = Limiter(key_func=get_real_ip)
 
 # Background scheduler for periodic tasks
 scheduler = AsyncIOScheduler()
