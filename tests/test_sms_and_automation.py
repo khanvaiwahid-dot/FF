@@ -345,12 +345,27 @@ class TestAutomationQueue:
 class TestAdminTriggerAutomation:
     """Test admin can trigger automation for orders"""
     
-    def test_admin_can_trigger_single_order_automation(self, admin_token, user_token, package_id):
+    def test_admin_can_trigger_single_order_automation(self, admin_token):
         """Test admin can trigger automation for a single queued order"""
-        user_headers = {"Authorization": f"Bearer {user_token}"}
         admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        unique_id = str(uuid.uuid4())[:8]
         
-        # Create an order and get it to queued status
+        # Create a new test user
+        test_username = f"autotest_{unique_id}"
+        response = requests.post(f"{BASE_URL}/api/auth/signup", json={
+            "username": test_username,
+            "password": "test123"
+        })
+        assert response.status_code == 200
+        user_token = response.json()["token"]
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        
+        # Get package
+        response = requests.get(f"{BASE_URL}/api/packages/list")
+        packages = response.json()
+        package_id = packages[0]["id"]
+        
+        # Create an order
         response = requests.post(f"{BASE_URL}/api/orders/create", headers=user_headers, json={
             "player_uid": "55555555",
             "package_id": package_id
@@ -358,19 +373,13 @@ class TestAdminTriggerAutomation:
         assert response.status_code == 200
         order_id = response.json()["order_id"]
         
-        # Get order details
-        response = requests.get(f"{BASE_URL}/api/orders/{order_id}", headers=user_headers)
-        order = response.json()
-        
-        # If order needs payment, we need to mark it as paid first via admin
-        if order["status"] == "pending_payment":
-            # Admin marks order as queued (simulating payment received)
-            response = requests.put(
-                f"{BASE_URL}/api/admin/orders/{order_id}",
-                headers=admin_headers,
-                json={"status": "queued"}
-            )
-            assert response.status_code == 200
+        # Admin marks order as queued (simulating payment received)
+        response = requests.put(
+            f"{BASE_URL}/api/admin/orders/{order_id}",
+            headers=admin_headers,
+            json={"status": "queued"}
+        )
+        assert response.status_code == 200
         
         # Now try to trigger automation
         response = requests.post(
@@ -378,28 +387,44 @@ class TestAdminTriggerAutomation:
             headers=admin_headers
         )
         
-        # Should succeed or fail gracefully
-        if response.status_code == 200:
-            data = response.json()
-            assert "message" in data
-            assert data.get("order_id") == order_id
-        elif response.status_code == 400:
-            # Order might not be in correct status
-            data = response.json()
-            assert "detail" in data
+        # Should succeed
+        assert response.status_code == 200
+        data = response.json()
+        assert "message" in data
+        assert data.get("order_id") == order_id
     
-    def test_trigger_automation_requires_queued_status(self, admin_token, user_token, package_id):
+    def test_trigger_automation_requires_queued_status(self, admin_token):
         """Test that triggering automation requires order to be in queued/paid status"""
-        user_headers = {"Authorization": f"Bearer {user_token}"}
         admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        unique_id = str(uuid.uuid4())[:8]
         
-        # Create an order (will be pending_payment)
+        # Create a new test user
+        test_username = f"statustest_{unique_id}"
+        response = requests.post(f"{BASE_URL}/api/auth/signup", json={
+            "username": test_username,
+            "password": "test123"
+        })
+        assert response.status_code == 200
+        user_token = response.json()["token"]
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        
+        # Get package
+        response = requests.get(f"{BASE_URL}/api/packages/list")
+        packages = response.json()
+        package_id = packages[0]["id"]
+        
+        # Create an order (will be pending_payment for new user)
         response = requests.post(f"{BASE_URL}/api/orders/create", headers=user_headers, json={
             "player_uid": "66666666",
             "package_id": package_id
         })
         assert response.status_code == 200
         order_id = response.json()["order_id"]
+        
+        # Verify order is pending_payment
+        response = requests.get(f"{BASE_URL}/api/orders/{order_id}", headers=user_headers)
+        order = response.json()
+        assert order["status"] == "pending_payment", f"New user order should be pending_payment, got {order['status']}"
         
         # Try to trigger automation on pending_payment order
         response = requests.post(
