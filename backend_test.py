@@ -156,7 +156,7 @@ class FreeFireDiamondAPITester:
             
             # Verify package structure
             package = data[0]
-            required_fields = ['id', 'name', 'diamonds', 'price', 'active']
+            required_fields = ['id', 'name', 'amount', 'price', 'active']
             has_all_fields = all(field in package for field in required_fields)
             self.log_test("Package Structure", has_all_fields, f"First package: {package.get('name', 'Unknown')}")
         else:
