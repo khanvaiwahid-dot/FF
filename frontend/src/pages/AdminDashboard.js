@@ -270,6 +270,86 @@ const AdminDashboard = () => {
           </div>
         )}
 
+        {/* Automation Issues Panel */}
+        {automationIssues && automationIssues.total > 0 && (
+          <div className="bg-white border-2 border-red-400 rounded-xl p-6 shadow-md">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-heading font-bold text-gray-900">Automation Issues</h2>
+                  <p className="text-sm text-red-600 font-medium">
+                    {automationIssues.total} orders need attention
+                  </p>
+                </div>
+              </div>
+              <Link to="/admin/orders">
+                <Button variant="outline" className="border-red-400 text-red-600 hover:bg-red-50">
+                  View All Orders
+                </Button>
+              </Link>
+            </div>
+            
+            {/* Failed Orders */}
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {automationIssues.orders?.map((order) => (
+                <div 
+                  key={order.id} 
+                  className={`p-3 rounded-lg border ${
+                    order.status === 'invalid_uid' 
+                      ? 'bg-yellow-50 border-yellow-300' 
+                      : 'bg-red-50 border-red-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-bold text-gray-900">
+                          {order.id.slice(0, 8).toUpperCase()}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          order.status === 'invalid_uid' 
+                            ? 'bg-yellow-100 text-yellow-700'
+                            : order.status === 'manual_review'
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-red-100 text-red-700'
+                        }`}>
+                          {order.status.replace('_', ' ').toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        {order.package_name} → UID: <span className="font-mono">{order.player_uid}</span>
+                      </div>
+                      {order.automation_state && (
+                        <div className="text-xs text-red-600 mt-1 font-medium">
+                          Error: {order.automation_state}
+                        </div>
+                      )}
+                      {order.suspicious_reason && (
+                        <div className="text-xs text-red-600 mt-1">
+                          Reason: {order.suspicious_reason}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex gap-2 ml-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleRetryOrder(order.id)}
+                        className="border-orange-400 text-orange-600 hover:bg-orange-50"
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Chart */}
         <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
           <h2 className="text-xl font-heading font-bold text-gray-900 mb-4">Order Status Overview</h2>
