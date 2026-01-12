@@ -292,6 +292,25 @@ const AdminDashboard = () => {
               </Link>
             </div>
             
+            {/* Bot Protection Warning */}
+            {automationIssues.orders?.some(o => o.automation_state?.includes('login_failed')) && (
+              <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-yellow-800">Garena Bot Protection Detected</p>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      Garena's DataDome security is blocking automated logins. Orders with "login_failed" status 
+                      need to be processed manually through the Garena website or app.
+                    </p>
+                    <p className="text-xs text-yellow-600 mt-2">
+                      Manual steps: Login to shop.garena.com → Select Free Fire → Enter Player UID → Complete purchase
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {/* Failed Orders */}
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {automationIssues.orders?.map((order) => (
