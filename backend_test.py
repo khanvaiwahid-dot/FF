@@ -293,7 +293,7 @@ class FreeFireDiamondAPITester:
         if self.test_order_id:
             payment_data = {
                 "order_id": self.test_order_id,
-                "sent_amount": 4.50,
+                "sent_amount_rupees": 4.50,
                 "last_3_digits": "910",
                 "payment_method": "UPI",
                 "remark": "PAYTM"
