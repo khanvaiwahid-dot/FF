@@ -1308,7 +1308,8 @@ async def verify_payment(request: PaymentVerificationRequest, user_data: dict = 
 # ===== SMS ENDPOINTS =====
 
 @api_router.post("/sms/receive")
-async def receive_sms(message: SMSMessage):
+@limiter.limit("60/minute")  # Rate limit: 60 SMS per minute per IP (for Android app)
+async def receive_sms(request: Request, message: SMSMessage):
     """Receive SMS from phone app"""
     parsed = parse_sms_message(message.raw_message)
     fingerprint = generate_sms_fingerprint(message.raw_message)
