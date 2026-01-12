@@ -2007,7 +2007,8 @@ async def admin_delete_user(user_id: str, user_data: dict = Depends(get_current_
 async def admin_wallet_recharge(user_id: str, request: AdminWalletRechargeRequest, user_data: dict = Depends(get_current_admin)):
     """
     Admin manually recharges (credits) user wallet.
-    Creates wallet transaction, order record, and audit log.
+    Creates wallet transaction (type=credit, source=admin), order record, and audit log.
+    wallet_load orders NEVER trigger automation.
     """
     # Validate user exists
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
@@ -2023,17 +2024,18 @@ async def admin_wallet_recharge(user_id: str, request: AdminWalletRechargeReques
     new_balance = old_balance + request.amount_paisa
     now = datetime.now(timezone.utc).isoformat()
     
-    # 1. Update user wallet balance
+    # 1. Update user wallet balance IMMEDIATELY
     await db.users.update_one(
         {"id": user_id},
         {"$set": {"wallet_balance_paisa": new_balance}}
     )
     
-    # 2. Create wallet transaction
+    # 2. Create wallet transaction (type=credit, source=admin)
     wallet_tx = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
-        "type": "admin_recharge",
+        "type": "credit",
+        "source": "admin",
         "amount_paisa": request.amount_paisa,
         "order_id": order_id,
         "balance_before_paisa": old_balance,
@@ -2045,17 +2047,17 @@ async def admin_wallet_recharge(user_id: str, request: AdminWalletRechargeReques
     }
     await db.wallet_transactions.insert_one(wallet_tx)
     
-    # 3. Create order record for traceability
+    # 3. Create wallet_load order record (NO UID, NO product validation, NO automation)
     order_doc = {
         "id": order_id,
-        "order_type": "wallet_load",
+        "order_type": "wallet_load",  # NEVER triggers automation
         "user_id": user_id,
         "username": user["username"],
-        "player_uid": None,
-        "server": None,
-        "package_id": None,
+        "player_uid": None,  # NULL - not required for wallet_load
+        "server": None,  # NULL - not required for wallet_load
+        "package_id": None,  # NULL - not required for wallet_load
         "package_name": "Admin Wallet Recharge",
-        "package_type": "admin_recharge",
+        "package_type": "wallet_load",
         "amount": None,
         "load_amount_paisa": request.amount_paisa,
         "locked_price_paisa": request.amount_paisa,
@@ -2071,11 +2073,11 @@ async def admin_wallet_recharge(user_id: str, request: AdminWalletRechargeReques
         "raw_message": None,
         "sms_fingerprint": f"ADMIN_RECHARGE_{order_id}",
         "overpayment_paisa": 0,
-        "status": "success",
+        "status": "success",  # Immediately success - no automation
         "automation_state": None,
         "retry_count": 0,
         "notes": f"Admin recharge by {user_data['username']}: {request.reason}",
-        "admin_action": "recharge",
+        "created_by": "admin",
         "admin_id": user_data["user_id"],
         "admin_username": user_data["username"],
         "created_at": now,
@@ -2084,20 +2086,19 @@ async def admin_wallet_recharge(user_id: str, request: AdminWalletRechargeReques
     }
     await db.orders.insert_one(order_doc)
     
-    # 4. Create admin action audit log
+    # 4. Create admin action audit log (MANDATORY)
     await db.admin_actions.insert_one({
         "id": str(uuid.uuid4()),
         "admin_id": user_data["user_id"],
         "admin_username": user_data["username"],
         "action_type": "wallet_recharge",
-        "target_id": user_id,
+        "target_user_id": user_id,
         "target_username": user["username"],
         "order_id": order_id,
         "amount_paisa": request.amount_paisa,
         "reason": request.reason,
         "balance_before_paisa": old_balance,
         "balance_after_paisa": new_balance,
-        "details": f"Recharged ₹{paisa_to_rupees(request.amount_paisa):.2f} to {user['username']}'s wallet. Reason: {request.reason}",
         "created_at": now
     })
     
@@ -2106,9 +2107,9 @@ async def admin_wallet_recharge(user_id: str, request: AdminWalletRechargeReques
     return {
         "message": f"Successfully recharged ₹{paisa_to_rupees(request.amount_paisa):.2f} to {user['username']}'s wallet",
         "order_id": order_id,
-        "amount_recharged": paisa_to_rupees(request.amount_paisa),
-        "old_balance": paisa_to_rupees(old_balance),
-        "new_balance": paisa_to_rupees(new_balance)
+        "amount_recharged_paisa": request.amount_paisa,
+        "old_balance_paisa": old_balance,
+        "new_balance_paisa": new_balance
     }
 
 @api_router.post("/admin/users/{user_id}/wallet/redeem")
