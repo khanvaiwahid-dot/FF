@@ -65,11 +65,11 @@ class TestPriceUpdateFlow:
         updated_package = next(p for p in packages if p["id"] == package_id)
         assert updated_package["price_paisa"] == 250, f"Expected 250 paisa, got {updated_package['price_paisa']}"
         
-        # Step 3: Create order with new price
+        # Step 3: Create order with new price (UID must be numeric, 8+ digits)
         response = requests.post(
             f"{BASE_URL}/api/orders/create",
             headers=user_headers,
-            json={"player_uid": "TEST_88776655", "package_id": package_id}
+            json={"player_uid": "88776655", "package_id": package_id}
         )
         assert response.status_code == 200
         order_data = response.json()
