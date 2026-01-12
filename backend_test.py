@@ -237,7 +237,7 @@ class FreeFireDiamondAPITester:
                     self.log_test("Server Override Test", False, f"Server not forced to Bangladesh: {server_value2}")
         
         # Test 4: List user orders
-        success, status, data = self.make_request('GET', 'orders/list/user', token=self.user_token)
+        success, status, data = self.make_request('GET', 'user/orders', token=self.user_token)
         
         if success and isinstance(data, list):
             self.log_test("List User Orders", True, f"Found {len(data)} orders")
