@@ -6,7 +6,8 @@ import { useAuth, API } from '@/App';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Users, Plus, Lock, Ban, Trash2, ArrowLeft, Unlock } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Users, Plus, Lock, Ban, Trash2, ArrowLeft, Unlock, PlusCircle, MinusCircle, Wallet } from 'lucide-react';
 
 const AdminUsers = () => {
   const navigate = useNavigate();
@@ -14,6 +15,8 @@ const AdminUsers = () => {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(null);
+  const [showRecharge, setShowRecharge] = useState(null);
+  const [showRedeem, setShowRedeem] = useState(null);
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -21,6 +24,11 @@ const AdminUsers = () => {
     password: ''
   });
   const [newPassword, setNewPassword] = useState('');
+  const [walletAction, setWalletAction] = useState({
+    amount: '',
+    reason: ''
+  });
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -95,8 +103,70 @@ const AdminUsers = () => {
     }
   };
 
+  const handleRecharge = async (user) => {
+    const amountRupees = parseFloat(walletAction.amount);
+    if (!amountRupees || amountRupees <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+    if (!walletAction.reason || walletAction.reason.trim().length < 5) {
+      toast.error('Reason is required (minimum 5 characters)');
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const amountPaisa = Math.round(amountRupees * 100);
+      const response = await axios.post(`${API}/admin/users/${user.id}/wallet/recharge`, {
+        amount_paisa: amountPaisa,
+        reason: walletAction.reason.trim()
+      });
+      toast.success(response.data.message);
+      setShowRecharge(null);
+      resetWalletAction();
+      fetchUsers();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to recharge wallet');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRedeem = async (user) => {
+    const amountRupees = parseFloat(walletAction.amount);
+    if (!amountRupees || amountRupees <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+    if (!walletAction.reason || walletAction.reason.trim().length < 5) {
+      toast.error('Reason is required (minimum 5 characters)');
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const amountPaisa = Math.round(amountRupees * 100);
+      const response = await axios.post(`${API}/admin/users/${user.id}/wallet/redeem`, {
+        amount_paisa: amountPaisa,
+        reason: walletAction.reason.trim()
+      });
+      toast.success(response.data.message);
+      setShowRedeem(null);
+      resetWalletAction();
+      fetchUsers();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to redeem from wallet');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const resetForm = () => {
     setFormData({ username: '', email: '', phone: '', password: '' });
+  };
+
+  const resetWalletAction = () => {
+    setWalletAction({ amount: '', reason: '' });
   };
 
   const formatDate = (date) => {
@@ -150,7 +220,27 @@ const AdminUsers = () => {
                       {!user.email && !user.phone && <span className="text-gray-400">-</span>}
                     </td>
                     <td className="px-6 py-4">
-                      <span className="font-bold text-primary">₹{user.wallet_balance?.toFixed(2) || '0.00'}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-primary">₹{user.wallet_balance?.toFixed(2) || '0.00'}</span>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => { setShowRecharge(user); resetWalletAction(); }}
+                            className="p-1 rounded-full hover:bg-green-100 text-green-600 transition-colors"
+                            title="Recharge Wallet"
+                            data-testid={`recharge-wallet-${user.id}`}
+                          >
+                            <PlusCircle className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => { setShowRedeem(user); resetWalletAction(); }}
+                            className="p-1 rounded-full hover:bg-red-100 text-red-600 transition-colors"
+                            title="Redeem from Wallet"
+                            data-testid={`redeem-wallet-${user.id}`}
+                          >
+                            <MinusCircle className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       {user.blocked ? (
@@ -183,22 +273,22 @@ const AdminUsers = () => {
       {showCreate && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">Create User</h2>
+            <h2 className="text-xl font-bold mb-4 text-gray-900">Create User</h2>
             <div className="space-y-4">
               <div>
-                <Label>Username * (immutable)</Label>
+                <Label className="text-gray-700">Username * (immutable)</Label>
                 <Input value={formData.username} onChange={(e) => setFormData({...formData, username: e.target.value})} placeholder="username" data-testid="user-username-input" />
               </div>
               <div>
-                <Label>Email</Label>
+                <Label className="text-gray-700">Email</Label>
                 <Input type="email" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} placeholder="email@example.com" data-testid="user-email-input" />
               </div>
               <div>
-                <Label>Phone</Label>
+                <Label className="text-gray-700">Phone</Label>
                 <Input type="tel" value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value})} placeholder="+1234567890" data-testid="user-phone-input" />
               </div>
               <div>
-                <Label>Password *</Label>
+                <Label className="text-gray-700">Password *</Label>
                 <Input type="password" value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} placeholder="Enter password" data-testid="user-password-input" />
               </div>
               <div className="flex gap-2">
@@ -214,16 +304,128 @@ const AdminUsers = () => {
       {showResetPassword && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4">Reset Password</h2>
-            <p className="text-sm text-gray-600 mb-4">Resetting password for: <strong>{showResetPassword.username}</strong></p>
+            <h2 className="text-xl font-bold mb-4 text-gray-900">Reset Password</h2>
+            <p className="text-sm text-gray-600 mb-4">Resetting password for: <strong className="text-gray-900">{showResetPassword.username}</strong></p>
             <div className="space-y-4">
               <div>
-                <Label>New Password *</Label>
+                <Label className="text-gray-700">New Password *</Label>
                 <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" data-testid="reset-password-input" />
               </div>
               <div className="flex gap-2">
                 <Button onClick={() => handleResetPassword(showResetPassword.id)} className="flex-1 bg-primary hover:bg-primary-hover text-white" data-testid="submit-reset-password">Reset Password</Button>
                 <Button onClick={() => { setShowResetPassword(null); setNewPassword(''); }} variant="outline" className="flex-1">Cancel</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recharge Wallet Modal */}
+      {showRecharge && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                <PlusCircle className="w-6 h-6 text-green-600" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Recharge Wallet</h2>
+                <p className="text-sm text-gray-600">Add funds to <strong className="text-gray-900">{showRecharge.username}</strong>'s wallet</p>
+              </div>
+            </div>
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-gray-700">Current Balance: <span className="font-bold text-primary">₹{showRecharge.wallet_balance?.toFixed(2) || '0.00'}</span></p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <Label className="text-gray-700">Amount (₹) *</Label>
+                <Input 
+                  type="number" 
+                  step="0.01"
+                  min="0.01"
+                  value={walletAction.amount} 
+                  onChange={(e) => setWalletAction({...walletAction, amount: e.target.value})} 
+                  placeholder="Enter amount in rupees" 
+                  data-testid="recharge-amount-input"
+                />
+              </div>
+              <div>
+                <Label className="text-gray-700">Reason * (min 5 characters)</Label>
+                <Textarea 
+                  value={walletAction.reason} 
+                  onChange={(e) => setWalletAction({...walletAction, reason: e.target.value})} 
+                  placeholder="Enter reason for recharge (e.g., Bonus credit, Refund adjustment)"
+                  className="min-h-[80px]"
+                  data-testid="recharge-reason-input"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button 
+                  onClick={() => handleRecharge(showRecharge)} 
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white" 
+                  disabled={actionLoading}
+                  data-testid="submit-recharge"
+                >
+                  {actionLoading ? 'Processing...' : 'Recharge Wallet'}
+                </Button>
+                <Button onClick={() => { setShowRecharge(null); resetWalletAction(); }} variant="outline" className="flex-1" disabled={actionLoading}>Cancel</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Redeem Wallet Modal */}
+      {showRedeem && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                <MinusCircle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Redeem from Wallet</h2>
+                <p className="text-sm text-gray-600">Deduct funds from <strong className="text-gray-900">{showRedeem.username}</strong>'s wallet</p>
+              </div>
+            </div>
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-gray-700">Current Balance: <span className="font-bold text-primary">₹{showRedeem.wallet_balance?.toFixed(2) || '0.00'}</span></p>
+              <p className="text-xs text-gray-500 mt-1">Maximum single redemption: ₹5,000.00</p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <Label className="text-gray-700">Amount (₹) *</Label>
+                <Input 
+                  type="number" 
+                  step="0.01"
+                  min="0.01"
+                  max={showRedeem.wallet_balance || 0}
+                  value={walletAction.amount} 
+                  onChange={(e) => setWalletAction({...walletAction, amount: e.target.value})} 
+                  placeholder="Enter amount in rupees" 
+                  data-testid="redeem-amount-input"
+                />
+              </div>
+              <div>
+                <Label className="text-gray-700">Reason * (min 5 characters)</Label>
+                <Textarea 
+                  value={walletAction.reason} 
+                  onChange={(e) => setWalletAction({...walletAction, reason: e.target.value})} 
+                  placeholder="Enter reason for redemption (e.g., Correction, Penalty, Refund reversal)"
+                  className="min-h-[80px]"
+                  data-testid="redeem-reason-input"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button 
+                  onClick={() => handleRedeem(showRedeem)} 
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white" 
+                  disabled={actionLoading}
+                  data-testid="submit-redeem"
+                >
+                  {actionLoading ? 'Processing...' : 'Redeem from Wallet'}
+                </Button>
+                <Button onClick={() => { setShowRedeem(null); resetWalletAction(); }} variant="outline" className="flex-1" disabled={actionLoading}>Cancel</Button>
               </div>
             </div>
           </div>
