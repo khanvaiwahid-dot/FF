@@ -264,7 +264,7 @@ class FreeFireDiamondAPITester:
         if self.test_order_id:  # Using existing order for testing payment verification
             wallet_payment_data = {
                 "order_id": self.test_order_id,
-                "sent_amount": 100.00,
+                "sent_amount_rupees": 100.00,
                 "last_3_digits": "555",
                 "payment_method": "FonePay",
                 "remark": "Wallet Top-up"
