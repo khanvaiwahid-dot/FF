@@ -482,16 +482,25 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         user_id = payload.get("sub")
         user_type = payload.get("type")
         username = payload.get("username")
+        role = payload.get("role", "USER")  # Default to USER role
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid token")
-        return {"user_id": user_id, "type": user_type, "username": username}
+        return {"user_id": user_id, "type": user_type, "username": username, "role": role}
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Require ADMIN role"""
     user_data = await get_current_user(credentials)
-    if user_data["type"] != "admin":
+    if user_data["type"] != "admin" or user_data.get("role") not in ["ADMIN"]:
         raise HTTPException(status_code=403, detail="Admin access required")
+    return user_data
+
+async def get_current_staff_or_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Require STAFF or ADMIN role"""
+    user_data = await get_current_user(credentials)
+    if user_data["type"] != "admin" or user_data.get("role") not in ["STAFF", "ADMIN"]:
+        raise HTTPException(status_code=403, detail="Staff or Admin access required")
     return user_data
 
 def parse_sms_message(raw_message: str) -> dict:
