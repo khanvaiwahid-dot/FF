@@ -2069,7 +2069,7 @@ async def admin_wallet_recharge(user_id: str, request: AdminWalletRechargeReques
         "payment_rrn": f"ADMIN_RECHARGE_{order_id[:8].upper()}",
         "payment_received_paisa": request.amount_paisa,
         "raw_message": None,
-        "sms_fingerprint": None,
+        "sms_fingerprint": f"ADMIN_RECHARGE_{order_id}",
         "overpayment_paisa": 0,
         "status": "success",
         "automation_state": None,
