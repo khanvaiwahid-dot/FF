@@ -112,39 +112,48 @@ user_problem_statement: |
 backend:
   - task: "Admin Wallet Recharge API"
     implemented: true
-    working: "NA"
+    working: true
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "Implemented POST /api/admin/users/{user_id}/wallet/recharge endpoint with wallet transaction, order record, and audit log creation"
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - Admin wallet recharge API working correctly. Successfully tested: valid recharge (₹100), validation for zero amount, validation for short reason (<5 chars), wallet balance updates, order record creation, audit log creation. Fixed duplicate key issues with payment_rrn and sms_fingerprint fields."
 
   - task: "Admin Wallet Redeem API"
     implemented: true
-    working: "NA"
+    working: true
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "Implemented POST /api/admin/users/{user_id}/wallet/redeem endpoint with balance check, single-action limit (₹5000), wallet transaction, order record, and audit log"
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - Admin wallet redeem API working correctly. Successfully tested: valid redeem (₹50), insufficient balance validation, single-action limit validation (₹5000), reason length validation, wallet balance updates, order record creation, audit log creation."
 
   - task: "Admin Action Logs API"
     implemented: true
-    working: "NA"
+    working: true
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "Implemented GET /api/admin/action-logs with filters (admin_username, action_type, start_date, end_date) and helper endpoints for filter options"
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - Admin action logs API working correctly. Successfully tested: GET /api/admin/action-logs (retrieved 5 logs with 4 wallet actions), filter by action_type=wallet_recharge (2 logs), filter by action_type=wallet_redeem (2 logs), filter by admin_username=admin (4 logs), helper endpoints /action-types and /admins working. All wallet actions properly logged with admin_username, action_type, target_username, amount, reason, timestamp."
 
 frontend:
   - task: "Admin Users - Recharge/Redeem Buttons"
