@@ -1,10 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Primary Colors -->
     <color name="primary">#FF6B35</color>
-    <color name="primary_dark">#E55A2B</color>
-    <color name="accent">#FFA500</color>
+    <color name="primary_dark">#E55A25</color>
+    <color name="primary_light">#FF8A5C</color>
+    
+    <!-- Secondary Colors -->
+    <color name="secondary">#28A745</color>
+    
+    <!-- Status Colors -->
+    <color name="success">#28A745</color>
+    <color name="warning">#FFC107</color>
+    <color name="error">#DC3545</color>
+    <color name="info">#17A2B8</color>
+    
+    <!-- Text Colors -->
+    <color name="text_primary">#212529</color>
+    <color name="text_secondary">#6C757D</color>
+    
+    <!-- Background -->
     <color name="white">#FFFFFF</color>
-    <color name="black">#000000</color>
-    <color name="gray">#666666</color>
-    <color name="light_gray">#F5F5F5</color>
+    <color name="background">#F8F9FA</color>
+    <color name="white_alpha_70">#B3FFFFFF</color>
+    
+    <!-- Switch Colors -->
+    <color name="switch_thumb">#FF6B35</color>
+    <color name="switch_track">#FFCCB3</color>
 </resources>
