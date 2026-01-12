@@ -1400,6 +1400,80 @@ async def admin_retry_order(order_id: str, user_data: dict = Depends(get_current
     
     return {"message": "Order queued for retry"}
 
+@api_router.post("/admin/orders/{order_id}/process")
+async def admin_process_order(order_id: str, background_tasks: BackgroundTasks, user_data: dict = Depends(get_current_admin)):
+    """Immediately trigger automation for a queued order"""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    if order.get("order_type") != "product_topup":
+        raise HTTPException(status_code=400, detail="Can only process product orders")
+    
+    if order.get("status") not in ["queued", "paid"]:
+        raise HTTPException(status_code=400, detail=f"Order must be in 'queued' or 'paid' status (current: {order.get('status')})")
+    
+    # Queue the automation in background
+    background_tasks.add_task(process_automation_order, order_id)
+    
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "trigger_automation",
+        "target_id": order_id,
+        "details": "Manually triggered automation",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "Automation started", "order_id": order_id}
+
+@api_router.get("/admin/automation/queue")
+async def admin_automation_queue(user_data: dict = Depends(get_current_admin)):
+    """Get orders in automation queue (queued/processing)"""
+    orders = await db.orders.find(
+        {
+            "order_type": "product_topup",
+            "status": {"$in": ["queued", "processing"]}
+        },
+        {"_id": 0}
+    ).sort("queued_at", 1).to_list(100)
+    
+    for order in orders:
+        order["locked_price"] = paisa_to_rupees(order.get("locked_price_paisa", 0))
+        order["wallet_used"] = paisa_to_rupees(order.get("wallet_used_paisa", 0))
+    
+    return {
+        "queued_count": len([o for o in orders if o["status"] == "queued"]),
+        "processing_count": len([o for o in orders if o["status"] == "processing"]),
+        "orders": orders
+    }
+
+@api_router.post("/admin/automation/process-all")
+async def admin_process_all_queued(background_tasks: BackgroundTasks, user_data: dict = Depends(get_current_admin)):
+    """Process all queued orders through automation"""
+    orders = await db.orders.find(
+        {"order_type": "product_topup", "status": "queued"},
+        {"_id": 0, "id": 1}
+    ).to_list(50)
+    
+    if not orders:
+        return {"message": "No queued orders", "count": 0}
+    
+    # Queue all orders for processing
+    for order in orders:
+        background_tasks.add_task(process_automation_order, order["id"])
+    
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "batch_automation",
+        "target_id": None,
+        "details": f"Triggered automation for {len(orders)} orders",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": f"Started automation for {len(orders)} orders", "count": len(orders)}
+
 @api_router.get("/admin/review-queue")
 async def admin_review_queue(user_data: dict = Depends(get_current_admin)):
     """Get orders needing review"""
