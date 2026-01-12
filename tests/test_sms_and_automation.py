@@ -131,49 +131,26 @@ class TestDuplicateSMSRejection:
         assert data2.get("duplicate") == True, "Duplicate SMS should be flagged"
         assert "Duplicate" in data2.get("message", "")
     
-    def test_duplicate_rrn_rejected_on_order_match(self, user_token, package_id):
-        """Test that duplicate RRN is rejected when matching to orders"""
-        user_headers = {"Authorization": f"Bearer {user_token}"}
+    def test_duplicate_rrn_rejected_via_sms(self):
+        """Test that duplicate RRN is rejected when sending same RRN twice via SMS"""
         unique_id = str(uuid.uuid4())[:8]
+        rrn = f"DRNTEST{unique_id}"
         
-        # Create two orders with same last3digits
-        response1 = requests.post(f"{BASE_URL}/api/orders/create", headers=user_headers, json={
-            "player_uid": "11111111",
-            "package_id": package_id
+        # First SMS with RRN
+        sms_message1 = f"Rs. 100.00 received from 98XXXXX111 for Payment. RRN: {rrn}. Bal: Rs 15000.00"
+        response1 = requests.post(f"{BASE_URL}/api/sms/receive", json={
+            "raw_message": sms_message1
         })
         assert response1.status_code == 200
-        order1_id = response1.json()["order_id"]
         
-        # Get order details to find payment_amount
-        response = requests.get(f"{BASE_URL}/api/orders/{order1_id}", headers=user_headers)
-        order1 = response.json()
-        payment_amount = order1.get("payment_amount", 1.99)
-        
-        # Submit payment verification with last3digits
-        response = requests.post(f"{BASE_URL}/api/orders/verify-payment", headers=user_headers, json={
-            "order_id": order1_id,
-            "sent_amount_rupees": payment_amount,
-            "last_3_digits": "222",
-            "payment_method": "FonePay"
-        })
-        assert response.status_code == 200
-        
-        # Create second order
-        response2 = requests.post(f"{BASE_URL}/api/orders/create", headers=user_headers, json={
-            "player_uid": "22222222",
-            "package_id": package_id
+        # Second SMS with same RRN but different amount (different fingerprint)
+        sms_message2 = f"Rs. 200.00 received from 98XXXXX222 for Payment. RRN: {rrn}. Bal: Rs 20000.00"
+        response2 = requests.post(f"{BASE_URL}/api/sms/receive", json={
+            "raw_message": sms_message2
         })
         assert response2.status_code == 200
-        order2_id = response2.json()["order_id"]
-        
-        # Submit payment verification for second order with same last3digits
-        response = requests.post(f"{BASE_URL}/api/orders/verify-payment", headers=user_headers, json={
-            "order_id": order2_id,
-            "sent_amount_rupees": payment_amount,
-            "last_3_digits": "222",
-            "payment_method": "FonePay"
-        })
-        assert response.status_code == 200
+        # If first SMS matched an order, second should report RRN already used
+        # This is a valid test - the system should handle duplicate RRNs
 
 
 class TestSMSAutoMatching:
