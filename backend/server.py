@@ -855,13 +855,13 @@ async def signup(request: Request, signup_data: SignupRequest):
 async def login(request: Request, login_data: LoginRequest):
     user = await db.users.find_one({
         "$or": [
-            {"username": request.identifier},
-            {"email": request.identifier},
-            {"phone": request.identifier}
+            {"username": login_data.identifier},
+            {"email": login_data.identifier},
+            {"phone": login_data.identifier}
         ]
     }, {"_id": 0})
     
-    if not user or not verify_password(request.password, user["password_hash"]):
+    if not user or not verify_password(login_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     if user.get("blocked"):
@@ -878,12 +878,13 @@ async def login(request: Request, login_data: LoginRequest):
     )
 
 @api_router.post("/auth/reset-password")
-async def reset_password(request: ResetPasswordRequest):
+@limiter.limit("3/minute")  # Rate limit: 3 password resets per minute per IP
+async def reset_password(request: Request, reset_data: ResetPasswordRequest):
     user = await db.users.find_one({
         "$or": [
-            {"username": request.identifier},
-            {"email": request.identifier},
-            {"phone": request.identifier}
+            {"username": reset_data.identifier},
+            {"email": reset_data.identifier},
+            {"phone": reset_data.identifier}
         ]
     })
     
@@ -892,12 +893,14 @@ async def reset_password(request: ResetPasswordRequest):
     
     await db.users.update_one(
         {"id": user["id"]},
-        {"$set": {"password_hash": hash_password(request.new_password)}}
+        {"$set": {"password_hash": hash_password(reset_data.new_password)}}
     )
     
     return {"message": "Password reset successful"}
 
 @api_router.post("/admin/login", response_model=TokenResponse)
+@limiter.limit("5/minute")  # Rate limit: 5 admin login attempts per minute per IP
+async def admin_login(request: Request, login_data: LoginRequest):
 async def admin_login(request: LoginRequest):
     admin = await db.admins.find_one({"username": request.identifier}, {"_id": 0})
     
