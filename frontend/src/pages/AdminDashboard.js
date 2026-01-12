@@ -372,6 +372,14 @@ const AdminDashboard = () => {
                       <Button
                         size="sm"
                         variant="outline"
+                        onClick={() => handleMarkSuccess(order.id)}
+                        className="border-green-400 text-green-600 hover:bg-green-50"
+                      >
+                        Mark Done
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
                         onClick={() => handleRetryOrder(order.id)}
                         className="border-orange-400 text-orange-600 hover:bg-orange-50"
                       >
