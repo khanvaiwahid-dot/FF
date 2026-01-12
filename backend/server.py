@@ -1068,6 +1068,8 @@ async def create_product_order(request: Request, order_data: CreateOrderRequest,
     # Round up payment amount
     payment_amount_paisa = round_up_payment_paisa(payment_required_paisa) if payment_required_paisa > 0 else 0
     
+    # Build order document - only include payment_rrn and sms_fingerprint if they have values
+    # MongoDB sparse unique indexes only skip documents where the field is MISSING
     order_doc = {
         "id": order_id,
         "order_type": "product_topup",
@@ -1087,10 +1089,9 @@ async def create_product_order(request: Request, order_data: CreateOrderRequest,
         "payment_method": None,
         "payment_remark": None,
         "payment_screenshot": None,
-        "payment_rrn": None,
+        # payment_rrn and sms_fingerprint NOT included - allows sparse unique index to work
         "payment_received_paisa": 0,
         "raw_message": None,
-        "sms_fingerprint": None,
         "overpayment_paisa": 0,
         "status": status,
         "automation_state": None,
