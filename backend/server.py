@@ -1699,6 +1699,26 @@ async def admin_review_queue(user_data: dict = Depends(get_current_admin)):
         "unmatched_sms": unmatched_sms
     }
 
+@api_router.get("/admin/automation/issues")
+async def admin_automation_issues(user_data: dict = Depends(get_current_admin)):
+    """Get orders with automation issues (manual_review, failed, invalid_uid)"""
+    orders = await db.orders.find(
+        {
+            "order_type": "product_topup",
+            "status": {"$in": ["manual_review", "failed", "invalid_uid"]}
+        },
+        {"_id": 0}
+    ).sort("updated_at", -1).limit(20).to_list(20)
+    
+    for order in orders:
+        order["locked_price"] = paisa_to_rupees(order.get("locked_price_paisa", 0))
+        order["wallet_used"] = paisa_to_rupees(order.get("wallet_used_paisa", 0))
+    
+    return {
+        "total": len(orders),
+        "orders": orders
+    }
+
 @api_router.get("/admin/sms")
 async def admin_list_sms(user_data: dict = Depends(get_current_admin)):
     messages = await db.sms_messages.find({}, {"_id": 0}).sort("parsed_at", -1).limit(100).to_list(100)
