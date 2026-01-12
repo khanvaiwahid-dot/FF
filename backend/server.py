@@ -1719,6 +1719,114 @@ async def admin_automation_issues(user_data: dict = Depends(get_current_admin)):
         "orders": orders
     }
 
+# ===== SMS FORWARDER APP API =====
+
+# Token for SMS forwarder app authentication
+SMS_FORWARDER_TOKEN = os.environ.get("SMS_FORWARDER_TOKEN", "sms-forwarder-secret-token-change-me")
+
+class SMSIngestRequest(BaseModel):
+    raw_message: str
+    sender: Optional[str] = None
+    received_at: str
+    amount_paisa: Optional[int] = None
+    last3digits: Optional[str] = None
+    rrn: Optional[str] = None
+    remark: Optional[str] = None
+    method: Optional[str] = None
+    sms_fingerprint: str
+    device_id: Optional[str] = None
+    app_version: Optional[str] = None
+
+async def verify_sms_forwarder_token(authorization: str = Header(None)):
+    """Verify SMS forwarder app token"""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization format")
+    
+    token = authorization[7:]  # Remove "Bearer " prefix
+    if token != SMS_FORWARDER_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    return token
+
+@api_router.post("/sms/ingest")
+async def sms_ingest(request: SMSIngestRequest, token: str = Depends(verify_sms_forwarder_token)):
+    """
+    Receive SMS from Android forwarder app.
+    - Validates token
+    - Checks for duplicates by fingerprint or RRN
+    - Parses SMS if fields not provided
+    - Stores and attempts auto-matching
+    """
+    # Check duplicate by fingerprint
+    existing = await db.sms_messages.find_one({"fingerprint": request.sms_fingerprint})
+    if existing:
+        return JSONResponse(
+            status_code=409,
+            content={"ok": False, "status": "duplicate", "reason": "fingerprint_exists"}
+        )
+    
+    # Check duplicate by RRN if provided
+    if request.rrn:
+        existing_rrn = await db.sms_messages.find_one({"rrn": request.rrn})
+        if existing_rrn:
+            return JSONResponse(
+                status_code=409,
+                content={"ok": False, "status": "duplicate", "reason": "rrn_exists"}
+            )
+    
+    # If amount not parsed by app, try server-side parsing
+    parsed = {}
+    if request.amount_paisa is None or request.last3digits is None:
+        parsed = parse_sms_message(request.raw_message)
+    
+    sms_doc = {
+        "id": str(uuid.uuid4()),
+        "raw_message": request.raw_message,
+        "sender": request.sender,
+        "fingerprint": request.sms_fingerprint,
+        "amount_paisa": request.amount_paisa or parsed.get("amount_paisa"),
+        "last3digits": request.last3digits or parsed.get("last3digits"),
+        "rrn": request.rrn or parsed.get("rrn"),
+        "method": request.method or parsed.get("method"),
+        "remark": request.remark or parsed.get("remark"),
+        "received_at": request.received_at,
+        "parsed_at": datetime.now(timezone.utc).isoformat(),
+        "device_id": request.device_id,
+        "app_version": request.app_version,
+        "source": "android_forwarder",
+        "used": False,
+        "matched_order_id": None,
+        "suspicious": False
+    }
+    
+    await db.sms_messages.insert_one(sms_doc)
+    logger.info(f"SMS ingested from forwarder: amount={sms_doc['amount_paisa']} paisa, rrn={sms_doc['rrn']}, device={request.device_id}")
+    
+    # Try to auto-match
+    best_order = await try_match_sms_to_orders(sms_doc)
+    
+    if best_order:
+        return {
+            "ok": True,
+            "status": "accepted",
+            "matched": True,
+            "matched_order_id": best_order["id"][:8]
+        }
+    
+    return {
+        "ok": True,
+        "status": "accepted",
+        "matched": False
+    }
+
+@api_router.get("/sms/health")
+async def sms_health():
+    """Health check endpoint for SMS forwarder app"""
+    return {"ok": True, "timestamp": datetime.now(timezone.utc).isoformat()}
+
 @api_router.get("/admin/sms")
 async def admin_list_sms(user_data: dict = Depends(get_current_admin)):
     messages = await db.sms_messages.find({}, {"_id": 0}).sort("parsed_at", -1).limit(100).to_list(100)
