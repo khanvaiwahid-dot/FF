@@ -66,8 +66,9 @@ class GarenaAutomation:
         
         self.page = await context.new_page()
         
-        # Apply stealth settings
-        await stealth_async(self.page)
+        # Apply stealth settings using Stealth class
+        stealth = Stealth()
+        await stealth.apply_stealth_async(self.page)
         
         # Set default timeouts
         self.page.set_default_timeout(DEFAULT_TIMEOUT)
