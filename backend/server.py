@@ -1145,6 +1145,7 @@ async def create_wallet_load_order(request: CreateWalletLoadRequest, user_data: 
     load_amount_paisa = rupees_to_paisa(request.amount_rupees)
     payment_amount_paisa = round_up_payment_paisa(load_amount_paisa)
     
+    # Build order document - omit payment_rrn and sms_fingerprint for sparse unique index
     order_doc = {
         "id": order_id,
         "order_type": "wallet_load",
@@ -1165,10 +1166,9 @@ async def create_wallet_load_order(request: CreateWalletLoadRequest, user_data: 
         "payment_method": None,
         "payment_remark": None,
         "payment_screenshot": None,
-        "payment_rrn": None,
+        # payment_rrn and sms_fingerprint NOT included - allows sparse unique index to work
         "payment_received_paisa": 0,
         "raw_message": None,
-        "sms_fingerprint": None,
         "overpayment_paisa": 0,
         "status": "pending_payment",
         "automation_state": None,
