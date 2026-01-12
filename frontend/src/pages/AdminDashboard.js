@@ -167,6 +167,84 @@ const AdminDashboard = () => {
           </div>
         </div>
 
+        {/* Automation Status Panel */}
+        {automationStatus && (automationStatus.queued_count > 0 || automationStatus.processing_count > 0) && (
+          <div className="bg-white border-2 border-orange-400 rounded-xl p-6 shadow-md">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                  <Clock className="w-5 h-5 text-orange-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-heading font-bold text-gray-900">Automation Queue</h2>
+                  <p className="text-sm text-gray-600">
+                    {automationStatus.queued_count} queued, {automationStatus.processing_count} processing
+                  </p>
+                </div>
+              </div>
+              <Button 
+                onClick={handleProcessAll}
+                className="bg-orange-500 hover:bg-orange-600 text-white"
+                disabled={automationStatus.queued_count === 0}
+              >
+                Process All
+              </Button>
+            </div>
+            
+            {/* Orders in Queue */}
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {automationStatus.orders?.slice(0, 10).map((order) => (
+                <div 
+                  key={order.id} 
+                  className={`flex items-center justify-between p-3 rounded-lg border ${
+                    order.status === 'processing' 
+                      ? 'bg-blue-50 border-blue-200' 
+                      : order.automation_state?.includes('error') || order.automation_state?.includes('failed')
+                        ? 'bg-red-50 border-red-200'
+                        : 'bg-gray-50 border-gray-200'
+                  }`}
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm font-bold text-gray-900">
+                        {order.id.slice(0, 8).toUpperCase()}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        order.status === 'processing' 
+                          ? 'bg-blue-100 text-blue-700' 
+                          : 'bg-orange-100 text-orange-700'
+                      }`}>
+                        {order.status}
+                      </span>
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      {order.package_name} → UID: <span className="font-mono">{order.player_uid}</span>
+                    </div>
+                    {order.automation_state && (
+                      <div className={`text-xs mt-1 ${
+                        order.automation_state.includes('error') || order.automation_state.includes('failed')
+                          ? 'text-red-600 font-medium'
+                          : 'text-gray-500'
+                      }`}>
+                        State: {order.automation_state}
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleProcessOrder(order.id)}
+                    disabled={processingOrder === order.id || order.status === 'processing'}
+                    className="ml-2"
+                  >
+                    {processingOrder === order.id ? 'Starting...' : order.status === 'processing' ? 'Running' : 'Process'}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Chart */}
         <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
           <h2 className="text-xl font-heading font-bold text-gray-900 mb-4">Order Status Overview</h2>
