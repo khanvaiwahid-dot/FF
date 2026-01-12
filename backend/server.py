@@ -55,6 +55,104 @@ limiter = Limiter(key_func=get_real_ip)
 # Background scheduler for periodic tasks
 scheduler = AsyncIOScheduler()
 
+# ===== SYSTEM SETTINGS (GLOBAL CACHE) =====
+# Loaded on startup and cached, updated when admin changes settings
+
+DEFAULT_SYSTEM_SETTINGS = {
+    "id": "system_settings",
+    "auto_payment_check": True,  # Auto-match payments to orders
+    "auto_topup": False,  # Auto-run automation (disabled due to bot detection)
+    "max_overpayment_ratio": 3,  # Max overpayment multiplier before suspicious
+    "max_wallet_credit": 1000000,  # Max wallet credit in paisa (₹10,000)
+    "automation_fail_threshold": 5,  # Circuit breaker threshold
+    "automation_fail_window_minutes": 10,  # Circuit breaker window
+    "order_expiry_minutes": 1440,  # 24 hours
+    "payment_match_window_minutes": 60,  # Payment age limit for auto-match
+    "created_at": None,
+    "updated_at": None
+}
+
+# Global cache for system settings
+_system_settings_cache = None
+_automation_failures = []  # Track recent automation failures for circuit breaker
+
+async def get_system_settings() -> dict:
+    """Get system settings from cache or database"""
+    global _system_settings_cache
+    
+    if _system_settings_cache is None:
+        settings = await db.system_settings.find_one({"id": "system_settings"}, {"_id": 0})
+        if settings is None:
+            # Initialize with defaults
+            settings = DEFAULT_SYSTEM_SETTINGS.copy()
+            settings["created_at"] = datetime.now(timezone.utc).isoformat()
+            settings["updated_at"] = datetime.now(timezone.utc).isoformat()
+            await db.system_settings.insert_one(settings)
+        _system_settings_cache = settings
+    
+    return _system_settings_cache
+
+async def update_system_settings(updates: dict) -> dict:
+    """Update system settings and refresh cache"""
+    global _system_settings_cache
+    
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.system_settings.update_one(
+        {"id": "system_settings"},
+        {"$set": updates},
+        upsert=True
+    )
+    
+    # Refresh cache
+    _system_settings_cache = await db.system_settings.find_one({"id": "system_settings"}, {"_id": 0})
+    return _system_settings_cache
+
+def record_automation_failure():
+    """Record an automation failure for circuit breaker"""
+    global _automation_failures
+    _automation_failures.append(datetime.now(timezone.utc))
+    # Keep only recent failures
+    _automation_failures = [f for f in _automation_failures if f > datetime.now(timezone.utc) - timedelta(minutes=30)]
+
+async def check_circuit_breaker() -> bool:
+    """Check if circuit breaker should trip. Returns True if automation should be disabled."""
+    global _automation_failures
+    settings = await get_system_settings()
+    
+    threshold = settings.get("automation_fail_threshold", 5)
+    window_minutes = settings.get("automation_fail_window_minutes", 10)
+    window_start = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+    
+    recent_failures = [f for f in _automation_failures if f > window_start]
+    
+    if len(recent_failures) >= threshold:
+        # Trip the circuit breaker
+        if settings.get("auto_topup", False):
+            await update_system_settings({"auto_topup": False})
+            logger.warning(f"CIRCUIT BREAKER TRIPPED: {len(recent_failures)} automation failures in {window_minutes} minutes. Auto-topup disabled.")
+            
+            # Create alert
+            await db.system_alerts.insert_one({
+                "id": str(uuid.uuid4()),
+                "type": "circuit_breaker",
+                "severity": "critical",
+                "message": f"Auto-topup disabled due to {len(recent_failures)} failures in {window_minutes} minutes",
+                "acknowledged": False,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            })
+        return True
+    
+    return False
+
+# ===== USER ROLES =====
+ROLES = ["USER", "STAFF", "ADMIN"]
+
+def get_role_level(role: str) -> int:
+    """Get numeric level for role comparison"""
+    levels = {"USER": 1, "STAFF": 2, "ADMIN": 3}
+    return levels.get(role, 0)
+
 # ===== SCHEDULED JOBS =====
 
 async def expire_old_orders():
