@@ -19,7 +19,8 @@ import {
   Clock,
   Shield,
   Users,
-  MessageSquare
+  MessageSquare,
+  ClipboardList
 } from 'lucide-react';
 
 const AdminDashboard = () => {
