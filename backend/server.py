@@ -2192,7 +2192,7 @@ async def admin_wallet_redeem(user_id: str, request: AdminWalletRedeemRequest, u
         "payment_method": "admin_manual",
         "payment_remark": request.reason,
         "payment_screenshot": None,
-        "payment_rrn": None,
+        "payment_rrn": f"ADMIN_REDEEM_{order_id[:8].upper()}",
         "payment_received_paisa": 0,
         "raw_message": None,
         "sms_fingerprint": None,
