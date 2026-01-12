@@ -233,16 +233,31 @@ class TestSMSAutoMatching:
 class TestOverpaymentCredit:
     """Test overpayment is credited to user wallet"""
     
-    def test_overpayment_credited_to_wallet(self, user_token, package_id, admin_token):
+    def test_overpayment_credited_to_wallet(self, admin_token):
         """Test that overpayment is credited to user wallet"""
-        user_headers = {"Authorization": f"Bearer {user_token}"}
         admin_headers = {"Authorization": f"Bearer {admin_token}"}
         unique_id = str(uuid.uuid4())[:8]
         last3 = "777"
         
-        # Get initial wallet balance
+        # Create a new test user to avoid wallet balance issues
+        test_username = f"overpay_{unique_id}"
+        response = requests.post(f"{BASE_URL}/api/auth/signup", json={
+            "username": test_username,
+            "password": "test123"
+        })
+        assert response.status_code == 200
+        user_token = response.json()["token"]
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        
+        # Get initial wallet balance (should be 0 for new user)
         response = requests.get(f"{BASE_URL}/api/user/wallet", headers=user_headers)
         initial_balance = response.json().get("balance", 0)
+        assert initial_balance == 0, "New user should have 0 wallet balance"
+        
+        # Get package
+        response = requests.get(f"{BASE_URL}/api/packages/list")
+        packages = response.json()
+        package_id = packages[0]["id"]
         
         # Create order
         response = requests.post(f"{BASE_URL}/api/orders/create", headers=user_headers, json={
@@ -257,17 +272,18 @@ class TestOverpaymentCredit:
         order = response.json()
         payment_required = order.get("payment_required", 1.99)
         
-        # Submit payment verification
+        # Submit payment verification with overpayment
+        overpayment = 5.0
         response = requests.post(f"{BASE_URL}/api/orders/verify-payment", headers=user_headers, json={
             "order_id": order_id,
-            "sent_amount_rupees": payment_required + 5.0,  # Overpay by ₹5
+            "sent_amount_rupees": payment_required + overpayment,
             "last_3_digits": last3,
             "payment_method": "FonePay"
         })
         assert response.status_code == 200
         
         # Send SMS with overpayment
-        overpayment_amount = payment_required + 5.0
+        overpayment_amount = payment_required + overpayment
         sms_message = f"Rs. {overpayment_amount:.2f} received from 98XXXXX{last3} for Payment. RRN: OVER{unique_id}. Bal: Rs 15000.00"
         
         response = requests.post(f"{BASE_URL}/api/sms/receive", json={
@@ -282,10 +298,8 @@ class TestOverpaymentCredit:
             new_balance = response.json().get("balance", 0)
             
             # Overpayment should be credited (approximately ₹5)
-            # Note: Due to rounding, exact amount may vary
             balance_increase = new_balance - initial_balance
-            # Just verify balance didn't decrease
-            assert balance_increase >= 0, "Wallet balance should not decrease"
+            assert balance_increase >= 4.0, f"Wallet should be credited with overpayment, got increase of {balance_increase}"
 
 
 # ===== AUTOMATION QUEUE TESTS =====
