@@ -106,7 +106,7 @@ Located at `/app/android-sms-forwarder/`
 ### Setup
 1. Install APK on Android device
 2. Grant SMS & notification permissions
-3. Enter server URL: `https://garenashop-1.preview.emergentagent.com`
+3. Enter server URL: `https://garena-credits.preview.emergentagent.com`
 4. Tap "Test Connection"
 5. Enable SMS Forwarding switch
 

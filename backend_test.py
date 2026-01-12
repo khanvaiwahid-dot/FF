@@ -7,7 +7,7 @@ from datetime import datetime
 import time
 
 class FreeFireDiamondAPITester:
-    def __init__(self, base_url="https://garenashop-1.preview.emergentagent.com"):
+    def __init__(self, base_url="https://garena-credits.preview.emergentagent.com"):
         self.base_url = base_url
         self.api_url = f"{base_url}/api"
         self.user_token = None

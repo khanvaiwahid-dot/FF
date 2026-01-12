@@ -1,146 +1,114 @@
 <analysis>**original_problem_statement:**
-Build a fully automated Free Fire diamonds top-up platform.
+The user has provided a comprehensive audit and refactoring request for the Nex-Store-main (Free Fire top-up) project. The goal is to audit, fix, and clean up the entire system (backend + frontend) to close all loopholes and align it with a detailed set of business logic requirements.
 
 **PRODUCT REQUIREMENTS:**
 
-1.  **Users & Auth:**
-    *   User signup with a unique, permanent username, email/phone, and password.
-    *   Password reset for users and admins.
-
-2.  **Website & UI:**
-    *   Mobile-first, minimal UI with a strict White/Orange/Red Garena-style theme.
-    *   Pages: Signup/Login, Top-Up, Payment Flow (Method & Details), Order Status, Wallet, Admin Panel.
-
-3.  **Top-Up & Payment Flow:**
-    *   The server is fixed and non-editable to Bangladesh.
-    *   Two-step payment:
-        1.  **Step 1 (Payment Method):** Select FonePay or Wallet. The system shows the order amount or allows the user to define a wallet top-up amount. Partial payment with the wallet is allowed.
-        2.  **Step 2 (Payment Details):** Display a FonePay QR code. The user must then submit a form with the sent amount, the last 3 digits of their phone number, and optional remarks/screenshots.
-    *   Payment Verification: No direct API. The system needs to be able to parse payment confirmation messages (SMS/app notifications) to verify transactions, using a Reference/Transaction Number (RRN) to prevent duplicates.
-
-4.  **Products & Pricing:**
-    *   Products must match Garena's offerings: Diamonds (25, 50, 115, 240, 610, 1240, 2530), Weekly Membership, Monthly Membership, Evo Access (3D, 7D, 30D).
-    *   Admin must have full CRUD control over products (create, edit, delete, enable/disable, sort).
-    *   Product prices must be editable by the admin, but the price must be locked for an order at the time of purchase.
-
-5.  **Garena Automation:**
-    *   Use Playwright with stealth techniques to automate the diamond delivery process on .
-    *   **Credentials must not be hardcoded.** An admin panel is required to manage multiple Garena login accounts (email/password/PIN), which are stored securely (encrypted).
-    *   The automation must select an active Garena account from the database for each order.
-    *   The flow includes logging in, selecting the product, and using a wallet/points system for payment.
-
-6.  **Admin Panel:**
-    *   **Dashboard:** View sales, order counts, and wallet balances.
-    *   **Products Management:** Full CRUD for products and pricing.
-    *   **Garena Accounts Manager:** Add, edit, and disable Garena automation accounts securely.
-    *   **User Management:** Admins can create, delete (soft), block/unblock users, and reset passwords.
-    *   **Order Management:** View orders, retry automation, and manually mark orders as successful.
-
-7.  **Test Data:**
-    *   Create a test client account with funds.
-    *   Provide admin credentials.
+1.  **Unified Order System:** All transactions (product top-ups and wallet loads) must be visible in a single, clean Orders system. Wallet loads must create an  record with an  of wallet_load.
+2.  **Wallet & Payment Safety:**
+    *   All monetary values must be stored and processed as integers (paisa/cents) to avoid floating-point errors.
+    *   Overpayment logic must be robust: credit the exact extra amount to the user's wallet.
+    *   Add sanity checks for unusually large overpayments, flagging them for manual review instead of auto-crediting.
+3.  **UI/UX Overhaul:**
+    *   Fix all UI readability issues, specifically white text on white/light backgrounds.
+    *   Standardize the entire application design to a strict Garena theme (white/orange/red).
+    *   Update user navigation to include Top-Up, a unified Orders page, and Wallet.
+4.  **Admin Capabilities:**
+    *   Admin must be able to review, edit, and manually fulfill any order.
+    *   Implement a manual review queue for suspicious transactions, failed automation, etc.
+    *   Admin must be able to manage Garena automation accounts (add/edit/delete/secure PIN).
+5.  **Robust Order States & Automation:**
+    *   Implement a comprehensive set of order statuses (, , , , , , , , , , ).
+    *   Handle automation failures gracefully (e.g., invalid UID, Garena site changes).
+    *   Ensure automation logs out of previous sessions to prevent top-ups to wrong accounts.
+6.  **Improved Payment Matching:**
+    *   Enforce payment used once by creating a unique index on the payment RRN and a  fingerprint of the raw SMS message.
+    *   Implement logic to auto-match pre-existing unmatched SMS messages to newly created orders.
+    *   Flag SMS messages that remain unmatched for over an hour as suspicious.
+7.  **Payment Rounding Policy:**
+    *   Implement a new rounding policy: round up to the nearest 1 (<100), nearest 5 (100-500), or nearest 10 (>500).
 
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack application with a FastAPI backend and a React frontend. The backend has been significantly refactored to include API endpoints for managing dynamic products, multiple Garena accounts (with encryption), and users. However, a critical dependency issue prevents it from running correctly.
-
-The frontend has been partially updated to a new Garena-style theme (white/orange/red), and placeholder files for the new admin management pages (Products, Garena Accounts, Users) have been created and linked in the main app router. The core logic from previous iterations, such as the two-step payment flow, is present but needs to be integrated with the new theme and admin functionalities.
+A full-stack application with a FastAPI backend and a React frontend. The agent has just begun a massive backend refactoring process based on a new, comprehensive set of user requirements. A new, empty file  has been created with the intention of replacing the monolith . The frontend has undergone several UI fixes but still has significant readability issues and requires further alignment with the new backend APIs and user requirements. An Android SMS forwarder app project has been scaffolded but is not integrated or tested. The application is currently in a non-functional, transitional state pending the completion of the refactor.
 
 **Last working item**:
-- **Last item agent was working:** Implementing the new frontend admin pages (Products, Garena Accounts, Users) and applying the Garena-style (white/orange/red) theme across the application. The agent created the necessary files, updated the routing in , and added navigation links to the .
+- **Last item agent was working:** The agent initiated a complete backend overhaul as requested by the user. It created a new file, , to house the refactored code that will address all new requirements, including unified orders, integer-based currency, and improved payment logic. The final action was to begin replacing the old server file with the new one.
 - **Status:** IN PROGRESS
 - **Agent Testing Done:** N
-- **Which testing method agent to use?** Frontend testing agent (after the UI pages are fully implemented and the backend bug is fixed).
+- **Which testing method agent to use?** both
 - **User Testing Done:** N
 
 **All Pending/In progress Issue list**:
-- **Issue 1:** Backend fails to start/initialize data due to a dependency conflict. (PRIORITY: P0)
+- **Issue 1:** The entire application requires a comprehensive audit and refactor to meet the new, detailed user requirements. (PRIORITY: P0)
 
 **Issues Detail:**
 - **Issue 1:**
-    - **Description:** When running the script  to initialize the database with test users, the application crashes with the error: . This is a critical bug that halts all further development and testing, as no users or data can be created.
-    - **Attempted fixes:** None. The agent encountered the error but moved on to frontend tasks without addressing it.
+    - **Description:** The current codebase does not meet the user's detailed requirements for order management, payment safety, UI consistency, and admin functionality. Major architectural changes are needed.
+    - **Attempted fixes:** The agent started the refactor by creating a new backend file .
     - **Next debug checklist:**
-        1.  Check the versions of  and  in . This error typically indicates an incompatibility.
-        2.  Run Found existing installation: bcrypt 4.1.3
-Uninstalling bcrypt-4.1.3:
-  Would remove:
-    /root/.venv/lib/python3.11/site-packages/bcrypt-4.1.3.dist-info/*
-    /root/.venv/lib/python3.11/site-packages/bcrypt/* to remove the potentially conflicting packages.
-        3.  Reinstall them by running Looking in indexes: https://pypi.org/simple, https://d33sy5i8bnduwe.cloudfront.net/simple/
-Requirement already satisfied: passlib[bcrypt] in /root/.venv/lib/python3.11/site-packages (1.7.4)
-Requirement already satisfied: bcrypt>=3.1.0 in /root/.venv/lib/python3.11/site-packages (from passlib[bcrypt]) (4.1.3). This ensures  installs a compatible version of .
-        4.  Update the  file with the new correct versions using .
-        5.  Restart the backend service: backend: stopped
-backend: started.
-        6.  Re-run the test data creation script: === Creating Test Data ===
-
-1. Creating test client...
-✓ Test client already exists: testclient
-  Wallet Balance: $50.0
-
-2. Creating Garena account...
-✓ Garena account already exists
-
-3. Admin Credentials:
-  Username: admin
-  Password: admin123
-
-=== Test Data Created Successfully ===
-
-You can now:
-1. Login as testclient (testclient / test123) with $50 wallet
-2. Login as admin (admin / admin123)
-3. Admin can manage Garena accounts, products, and users
-4. Automation will use the Garena account from database.
-    - **Why fix this issue and what will be achieved with the fix?** This fix is essential to make the application runnable. It will allow the creation of users and test data, unblocking all testing of login, authentication, and the new admin panel features.
-    - **Status:** NOT STARTED
+        1.  Implement all backend logic from the user's requirements () in . This includes:
+            - Using integers for all currency values (/).
+            - Creating a unified  collection with an  field.
+            - Implementing the new payment rounding policy.
+            - Adding robust payment matching with RRN and SMS fingerprint uniqueness.
+            - Defining all new order statuses and their transition logic.
+            - Adding all required admin endpoints (dashboard, order management, review queues).
+        2.  Replace the old  with the new file and ensure the backend service runs correctly.
+        3.  Refactor the entire frontend to fix UI readability issues, align with the new Garena color scheme, and integrate with the new backend APIs.
+        4.  Specifically target and fix , , , and  pages.
+    - **Why fix this issue and what will be achieved with the fix?** This will transform the application from a prototype into a robust, secure, and user-friendly platform that aligns with the core business logic, closing security loopholes and improving operational efficiency.
+    - **Status:** IN PROGRESS
     - **Is recurring issue?** N
-    - **Should Test frontend/backend/both after fix?** Backend.
+    - **Should Test frontend/backend/both after fix?** both
+    - **Blocked on other issue:** None. This is the primary task.
 
 **In progress Task List**:
-- **Task 1:** Complete the implementation of the new Admin UI pages. (PRIORITY: P0)
-
-**Task Detail:**
-- **Task 1:**
-    - **Where to resume:** The following files are currently placeholders and need to be fully developed with React components, state management, and API integration:
-        - 
-        - 
-        - 
-    - **What will be achieved with this?** A fully functional admin panel where the administrator can manage products, Garena automation accounts, and application users, fulfilling a core requirement from the user.
-    - **Status:** IN PROGRESS
-    - **Should Test frontend/backend/both after fix?** Both.
-    - **Blocked on something:** The backend  (Issue 1). It is impossible to effectively build and test these UI pages without a working backend to fetch and manipulate data.
+- **Task 1:** Complete the backend refactoring. (PRIORITY: P0)
+  - **Where to resume:** Populate the empty  file with the completely refactored backend code according to the user's detailed requirements.
+  - **What will be achieved with this?** A stable, secure, and feature-complete backend API that serves as the foundation for the application.
+  - **Status:** IN PROGRESS
+  - **Should Test frontend/backend/both after fix?** Backend.
+  - **Blocked on something:** Nothing.
 
 **Upcoming and Future Tasks**
-- **Upcoming Tasks:**
-    - **P1: Frontend Theme Overhaul:** Systematically review and update all existing user-facing components (, , , , etc.) to ensure they strictly adhere to the new white/orange/red Garena theme, removing all remnants of the previous neon/dark theme.
-    - **P2: End-to-End Testing:** Once the backend bug is fixed and the admin UIs are complete, call the  to perform a comprehensive test run. This must verify all acceptance criteria defined by the user, including product price locking, Garena account rotation from the database, user management, and correct UI rendering.
+**Upcoming Tasks:**
+- **P0: Backend Implementation in :**
+    - **Data Model:** Convert all currency fields (, , etc.) to integers ().
+    - **Orders:** Unify  and  into a single  collection with an  field.
+    - **Payment Logic:** Implement the new rounding policy and robust overpayment handling.
+    - **Payment Matching:** Add  for uniqueness and logic to match pre-existing SMS messages.
+    - **Statuses:** Implement the full list of new order statuses (, , , etc.).
+    - **Admin API:** Create endpoints for the new admin dashboard analytics, order editing, and manual review queues.
+- **P1: Frontend Overhaul:**
+    - **UI Fixes:** Systematically remove all  on light backgrounds and standardize text colors to /.
+    - **API Integration:** Connect the frontend to the new  backend endpoints.
+    - **Pages:** Rebuild the , , and payment flow pages to align with the new unified order system and UI standards.
+- **P2: End-to-End Flow Testing:**
+    - Test the complete user journey: order creation -> SMS payment -> overpayment wallet credit -> successful automation.
+    - Test edge cases: invalid UID, suspicious payments, manual order fulfillment.
 
-- **Future Tasks:**
-    - **P3: Payment Message Parsing Automation:** Implement the core feature of automatically parsing payment confirmation messages (SMS/app notifications) to verify transactions. This was in the original problem statement but has not been implemented yet.
-    - **P4: Automation Queue & Failover:** Build and test the backend queuing system for processing orders one by one, including logic for retries on failure and routing to a manual review state.
+**Future Tasks:**
+- **P3: Android SMS Forwarder Integration:**
+    - Provide a build script for the created Android app.
+    - Test the app's ability to forward SMS messages to the backend  endpoint.
 
 **Completed work in this session**
-- **Backend Refactoring:**
-    - Implemented API endpoints for CRUD operations on , , and  in .
-    - Added encryption for storing Garena account credentials securely.
-    - Updated automation logic to fetch Garena credentials from the database instead of using hardcoded values.
-- **Frontend Scaffolding:**
-    - Implemented a two-step payment flow with a fixed Bangladesh server.
-    - Created placeholder files and routes for the new admin pages (, , ).
-    - Began a theme overhaul by updating  and .
-- **Garena Automation Research:**
-    - Explored the live Garena website () to understand the real top-up flow.
-    - Implemented a stealth approach using  to bypass basic anti-bot measures.
+- **Backend Bug Fixes & Features:**
+    - Resolved a critical  that was blocking the backend from starting.
+    - Implemented payment logic for rounding prices and handling overpayments by crediting the user's wallet.
+    - Created an admin endpoint and UI () for manually inputting and matching payment SMS messages.
+    - Improved the SMS parsing regex to correctly extract phone digits.
+- **Frontend UI Overhaul:**
+    - Fixed a  build error.
+    - Applied a consistent Garena-style (white/orange/red) theme to , , , and  pages.
+    - Created a new  page with a detail view and added the corresponding backend endpoint.
+    - Fixed numerous UI readability issues (e.g., dark text on light backgrounds) on the , , and  pages.
+- **New Components:**
+    - Scaffolded a complete Android Studio project for an SMS forwarding application in .
 
 **Earlier issues found/mentioned but not fixed**
-- **Issue 1:** The  was encountered when the agent tried to create test data. The agent ignored the error and proceeded with frontend tasks, leaving the backend in a broken state.
-    - **Debug checklist:** See Issues Detail section above.
-    - **Why to solve this issue and what will be achieved with this?** Fixing this will make the application's backend functional, enabling user creation, login, and data persistence, which is required for any further development or testing.
-    - **Should Test frontend/backend/both after fix:** Backend.
-    - **Is recurring issue?** N
+- All previously identified issues are now encapsulated within the comprehensive audit and refactoring task requested by the user in . The entire application is considered unfixed relative to these new, detailed requirements.
 
 **Known issue recurrence from previous fork**
 - None.
@@ -151,88 +119,75 @@ You can now:
 **Key Technical Concepts**
 - **Backend:** FastAPI, MongoDB (via Pymongo)
 - **Frontend:** React, Tailwind CSS
-- **Authentication:** JWT-based for users/admins.
-- **Automation:** Playwright with  for web automation.
-- **Security:**  library for encrypting Garena credentials.
+- **Authentication:** JWT
+- **Automation:** Playwright with 
+- **Architecture:** The backend is moving from a single monolithic file to a refactored, more organized structure. A key change is the switch to integer-based currency for all financial calculations.
 
 **key DB schema**
+*(Proposed changes based on user requirements)*
 - **users:** 
-- **products:** 
 - **orders:** 
-- **garena_accounts:** 
-- **payments:** 
+- **sms_messages:** 
+- **wallet_transactions:** 
 
 **changes in tech stack**
--  was added to bypass anti-bot detection.
--  was added for secure credential storage.
+- None in the core web application. An auxiliary Android application project was created.
 
 **All files of reference**
-- : Contains all backend logic, including the new CRUD endpoints and updated automation.
-- : Contains the updated routing for the new admin pages.
-- , , : New placeholder files for the admin panel UI.
-- , : Updated with the new Garena theme colors.
-- : A script to populate the database, which is currently failing and needs to be debugged.
+- : The new, empty file where the entire backend refactor must be implemented.
+- : The existing legacy backend code that needs to be replaced.
+- : The directory containing all frontend pages that require UI fixes and API integration updates.
+- : The directory containing the new Android SMS forwarder project.
 
-**Areas that need refactoring**
-- The entire frontend needs to be refactored to consistently apply the new Garena theme (white/orange/red) and remove old styling.
--  is becoming very large. It could be split into multiple files/routers for better organization (e.g., separating user routes, admin routes, and automation logic).
+**Areas that need refactoring**:
+- **Backend:** The entire  file must be rewritten into  to incorporate all new requirements, including integer currency, unified orders, and improved security checks.
+- **Frontend:** Nearly all pages require a UI audit to fix readability (white-on-white text) and design consistency issues. Pages handling orders and payments (, , , , ) need to be updated to work with the new backend APIs.
 
 **key api endpoints**
--  (GET, POST)
--  (PUT, DELETE)
--  (GET, POST)
--  (PUT, DELETE)
--  (GET, POST)
--  (PUT, DELETE)
-- , 
--  (POST)
-- : Initializes the database with products.
+*(To be implemented in the refactor)*
+- : (GET) Unified endpoint to fetch both product and wallet orders for a user.
+- : (POST) Endpoint to create a  order.
+- : Endpoint to handle payment verification, overpayment crediting, and status updates.
+- : Full CRUD and filtering endpoints for admin order management.
+- : Endpoint to fetch items needing manual review.
+- : Endpoint for new sales and wallet analytics.
 
 **Critical Info for New Agent**
-- The user has become directive and expects the agent to follow instructions precisely without asking for options. Adhere strictly to the priority list provided by the user.
-- The immediate priority is to fix the backend  bug. Nothing else can be effectively tested until this is resolved.
-- After fixing the backend, the next priority is to complete the frontend admin pages that have already been created as placeholders.
-- The Garena automation is a sensitive part of the project. The  library is in use, but the automation flow has not been successfully tested end-to-end against the live site since the anti-bot measures were encountered.
+- **Single Source of Truth:** The user's message () is now the definitive product requirements document. Adhere to it strictly.
+- **Refactor First:** The immediate and highest priority task is to implement the full backend logic in the new  file. The application is non-functional until this is complete.
+- **Integer Currency:** The shift to integer-based currency (paisa/cents) for all financial data is a critical and non-negotiable architectural change.
+- **Phased Approach:** Complete the backend refactor first, ensure it's stable, and then proceed to the frontend overhaul. Do not attempt to do both simultaneously.
 
 **documents and test reports created in this job**
 - 
 - 
-- 
-- 
-- 
+-  and all other project files in that directory.
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User:** Integrates Garena site for automation with specific steps and credentials. (Agent implements this incorrectly without checking the site).
-2.  **User:** Asks if the agent actually used Selenium to check the site.
-3.  **User:** Provides a specific UID to use for exploring the Garena site payment flow.
-4.  **User:** Provides a screenshot clarifying the login and payment flow on the Garena Redeem tab.
-5.  **User:** Agrees to let the agent implement bot detection bypass techniques.
-6.  **User:** Provides a massive overhaul of requirements: exact product list, admin-editable pricing, a Garena account manager in admin, admin user management, and a complete UI theme change to white/orange/red.
-7.  **User:** Expresses frustration with the agent asking for choices, provides a strict priority order for implementation, and lists clear acceptance criteria. Asks for a test client and admin credentials to be created.
-8.  **User:** Approves the agent to proceed with the frontend implementation after the agent paused.
-9.  **User:** (Implicit) Confirms the detailed frontend scope and testing requirements provided by the agent.
-10. **User:** (Continuation of previous message) Gives the final direction to proceed with frontend admin pages without further approval until delivery.
+1.  **User:** Asks to create the Android SMS forwarder app. (Agent created the full project structure).
+2.  **User:** Provides a massive, detailed audit and refactoring request for the entire application, outlining all required backend and frontend changes. This is the new master plan.
+3.  **User:** (Implicit approval to start the audit) The agent acknowledges the task and begins by exploring the codebase.
+4.  **Agent:** Starts the major refactor by creating .
+5.  **Agent:** Prepares to replace the old server file with the new one. This was the last action.
 
 **Project Health Check:**
-- **Broken:** The backend is non-functional due to the  dependency error, which prevents the application from starting correctly or creating data.
+- **Broken/In-Refactor:** The backend is in a critical transitional state. A new, empty  has been created to replace the existing . The application is not functional and requires the refactor to be completed before any part of it can work.
 
 **3rd Party Integrations**
-- **Playwright-stealth:** Used for web automation to bypass anti-bot detection on the Garena website.
+- **Playwright-stealth:** Used for Garena web automation.
 
 **Testing status**
-- **Testing agent used after significant changes:** NO (Not since the last major refactor).
+- **Testing agent used after significant changes:** YES (but before the latest major refactoring request).
 - **Troubleshoot agent used after agent stuck in loop:** NO.
 - **Test files created:**
     - 
-    -  (This script is currently failing).
-- **Known regressions:** The entire application is non-functional due to the backend dependency error.
+    - 
+- **Known regressions:** The entire application is non-functional pending the completion of the backend refactor. The previously passed tests are no longer valid.
 
 **Credentials to test flow:**
-The  script is intended to create:
-- **Admin User:**  / 
-- **Test Client:**  /  (with 500 in wallet)
-This script is currently broken.
+- **Admin:**  /  (or )
+- **Client:**  / 
+- These are created by the  script.
 
 **What agent forgot to execute**
-- The agent failed to debug the critical  in the backend. It acknowledged the error from the tool output but immediately moved on to frontend tasks, leaving the project in a broken state.
-- The agent has not yet implemented the automated parsing of payment messages (SMS/app notifications), a key requirement from the original problem statement.</analysis>
+- The agent has just started the comprehensive refactoring task outlined by the user. The primary pending execution is to implement the entirety of the user's requirements from .</analysis>
