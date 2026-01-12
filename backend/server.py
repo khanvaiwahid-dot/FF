@@ -947,11 +947,22 @@ async def process_automation_order(order_id: str):
         )
 
 async def try_match_sms_to_orders(sms_doc: dict):
-    """Try to match an SMS to pending orders"""
+    """
+    Try to match an SMS payment to pending orders.
+    Implements production-ready safety checks:
+    - Duplicate prevention (RRN + fingerprint)
+    - Payment age window check
+    - Overpayment ratio check
+    - Max wallet credit check
+    - Routes to manual queue if auto_payment_check is disabled
+    """
+    settings = await get_system_settings()
+    
     amount_paisa = sms_doc.get("amount_paisa")
     last3digits = sms_doc.get("last3digits")
     rrn = sms_doc.get("rrn")
     fingerprint = sms_doc.get("fingerprint")
+    sms_received_at = sms_doc.get("received_at") or sms_doc.get("parsed_at")
     
     if not amount_paisa or not last3digits:
         return None
@@ -960,7 +971,12 @@ async def try_match_sms_to_orders(sms_doc: dict):
     if rrn:
         existing = await db.orders.find_one({"payment_rrn": rrn})
         if existing:
-            logger.warning(f"Duplicate RRN {rrn} detected")
+            logger.warning(f"Duplicate RRN {rrn} detected - marking SMS as duplicate")
+            await db.sms_messages.update_one(
+                {"id": sms_doc["id"]},
+                {"$set": {"status": "duplicate_payment", "used": True}}
+            )
+            await create_system_alert("duplicate_payment", "warning", f"Duplicate payment RRN: {rrn}", rrn)
             return None
     
     # Check for duplicate fingerprint
@@ -968,16 +984,49 @@ async def try_match_sms_to_orders(sms_doc: dict):
         existing = await db.orders.find_one({"sms_fingerprint": fingerprint})
         if existing:
             logger.warning(f"Duplicate SMS fingerprint detected")
+            await db.sms_messages.update_one(
+                {"id": sms_doc["id"]},
+                {"$set": {"status": "duplicate_payment", "used": True}}
+            )
             return None
     
+    # Check if auto_payment_check is disabled - route to manual queue
+    if not settings.get("auto_payment_check", True):
+        logger.info("Auto payment check disabled - routing to manual queue")
+        await db.sms_messages.update_one(
+            {"id": sms_doc["id"]},
+            {"$set": {"status": "manual_review", "manual_review_reason": "auto_payment_check_disabled"}}
+        )
+        return None
+    
+    # Check payment age (within payment_match_window_minutes)
+    payment_match_window = settings.get("payment_match_window_minutes", 60)
+    if sms_received_at:
+        try:
+            if isinstance(sms_received_at, str):
+                sms_time = datetime.fromisoformat(sms_received_at.replace('Z', '+00:00'))
+            else:
+                sms_time = sms_received_at
+            
+            age_minutes = (datetime.now(timezone.utc) - sms_time).total_seconds() / 60
+            if age_minutes > payment_match_window:
+                logger.warning(f"Payment too old ({age_minutes:.0f} min > {payment_match_window} min) - requires manual review")
+                await db.sms_messages.update_one(
+                    {"id": sms_doc["id"]},
+                    {"$set": {"status": "manual_review", "manual_review_reason": "payment_age_exceeded"}}
+                )
+                return None
+        except Exception as e:
+            logger.error(f"Error checking payment age: {e}")
+    
     # Find best matching order:
-    # - Status is pending
+    # - Status is pending_payment (NOT expired)
     # - Last 3 digits match
     # - Payment amount >= required
     # - Prefer smallest overpayment
     # - Prefer oldest order
     pending_orders = await db.orders.find({
-        "status": {"$in": ["pending_payment", "manual_review"]},
+        "status": "pending_payment",  # Only pending_payment, not expired
         "payment_last3digits": last3digits,
         "payment_required_paisa": {"$lte": amount_paisa}
     }, {"_id": 0}).sort("created_at", 1).to_list(20)
@@ -995,6 +1044,44 @@ async def try_match_sms_to_orders(sms_doc: dict):
         if overpayment < best_overpayment:
             best_overpayment = overpayment
             best_order = order
+    
+    if not best_order:
+        return None
+    
+    required_amount = best_order.get("payment_required_paisa", 0)
+    
+    # OVERPAYMENT SAFETY CHECK 1: Ratio check
+    max_ratio = settings.get("max_overpayment_ratio", 3)
+    if amount_paisa > required_amount * max_ratio:
+        logger.warning(f"Suspicious overpayment: {amount_paisa} > {required_amount} * {max_ratio}")
+        await db.sms_messages.update_one(
+            {"id": sms_doc["id"]},
+            {"$set": {"suspicious": True, "status": "suspicious", "suspicious_reason": f"overpayment_ratio_exceeded"}}
+        )
+        await create_system_alert(
+            "suspicious_payment", "critical",
+            f"Suspicious overpayment: Rs {paisa_to_rupees(amount_paisa)} for order requiring Rs {paisa_to_rupees(required_amount)}",
+            best_order["id"],
+            {"amount_paisa": amount_paisa, "required_paisa": required_amount, "ratio": amount_paisa / required_amount}
+        )
+        return None  # Don't auto-credit
+    
+    # OVERPAYMENT SAFETY CHECK 2: Max wallet credit check
+    leftover = amount_paisa - required_amount
+    max_wallet_credit = settings.get("max_wallet_credit", 1000000)
+    if leftover > max_wallet_credit:
+        logger.warning(f"Leftover {leftover} exceeds max wallet credit {max_wallet_credit}")
+        await db.sms_messages.update_one(
+            {"id": sms_doc["id"]},
+            {"$set": {"suspicious": True, "status": "suspicious", "suspicious_reason": f"leftover_exceeds_max_wallet_credit"}}
+        )
+        await create_system_alert(
+            "suspicious_payment", "critical",
+            f"Leftover Rs {paisa_to_rupees(leftover)} exceeds max wallet credit Rs {paisa_to_rupees(max_wallet_credit)}",
+            best_order["id"],
+            {"leftover_paisa": leftover, "max_wallet_credit_paisa": max_wallet_credit}
+        )
+        return None  # Don't auto-credit
     
     return best_order
 
