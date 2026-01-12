@@ -992,13 +992,14 @@ async def list_packages():
 # ===== ORDER ENDPOINTS =====
 
 @api_router.post("/orders/create")
-async def create_product_order(request: CreateOrderRequest, user_data: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")  # Rate limit: 10 orders per minute per IP
+async def create_product_order(request: Request, order_data: CreateOrderRequest, user_data: dict = Depends(get_current_user)):
     """Create a product top-up order"""
     if user_data["type"] != "user":
         raise HTTPException(status_code=403, detail="User access required")
     
     # Validate UID (min 8 digits)
-    if not request.player_uid.isdigit() or len(request.player_uid) < 8:
+    if not order_data.player_uid.isdigit() or len(order_data.player_uid) < 8:
         raise HTTPException(status_code=400, detail="Player UID must be at least 8 digits")
     
     user = await db.users.find_one({"id": user_data["user_id"]}, {"_id": 0})
@@ -1007,7 +1008,7 @@ async def create_product_order(request: CreateOrderRequest, user_data: dict = De
     if user.get("blocked"):
         raise HTTPException(status_code=403, detail="Account is blocked")
     
-    package = await db.packages.find_one({"id": request.package_id, "active": True}, {"_id": 0})
+    package = await db.packages.find_one({"id": order_data.package_id, "active": True}, {"_id": 0})
     if not package:
         raise HTTPException(status_code=404, detail="Package not found or inactive")
     
