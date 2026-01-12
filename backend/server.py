@@ -2001,6 +2001,299 @@ async def admin_delete_user(user_id: str, user_data: dict = Depends(get_current_
     await db.users.update_one({"id": user_id}, {"$set": {"deleted": True, "blocked": True}})
     return {"message": "User deleted"}
 
+# ===== ADMIN WALLET MANAGEMENT =====
+
+@api_router.post("/admin/users/{user_id}/wallet/recharge")
+async def admin_wallet_recharge(user_id: str, request: AdminWalletRechargeRequest, user_data: dict = Depends(get_current_admin)):
+    """
+    Admin manually recharges (credits) user wallet.
+    Creates wallet transaction, order record, and audit log.
+    """
+    # Validate user exists
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Validate reason length
+    if len(request.reason.strip()) < 5:
+        raise HTTPException(status_code=400, detail="Reason must be at least 5 characters")
+    
+    order_id = str(uuid.uuid4())
+    old_balance = user.get("wallet_balance_paisa", 0)
+    new_balance = old_balance + request.amount_paisa
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # 1. Update user wallet balance
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"wallet_balance_paisa": new_balance}}
+    )
+    
+    # 2. Create wallet transaction
+    wallet_tx = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "type": "admin_recharge",
+        "amount_paisa": request.amount_paisa,
+        "order_id": order_id,
+        "balance_before_paisa": old_balance,
+        "balance_after_paisa": new_balance,
+        "description": f"Admin recharge: {request.reason}",
+        "admin_id": user_data["user_id"],
+        "admin_username": user_data["username"],
+        "created_at": now
+    }
+    await db.wallet_transactions.insert_one(wallet_tx)
+    
+    # 3. Create order record for traceability
+    order_doc = {
+        "id": order_id,
+        "order_type": "wallet_load",
+        "user_id": user_id,
+        "username": user["username"],
+        "player_uid": None,
+        "server": None,
+        "package_id": None,
+        "package_name": "Admin Wallet Recharge",
+        "package_type": "admin_recharge",
+        "amount": None,
+        "load_amount_paisa": request.amount_paisa,
+        "locked_price_paisa": request.amount_paisa,
+        "wallet_used_paisa": 0,
+        "payment_required_paisa": 0,
+        "payment_amount_paisa": 0,
+        "payment_last3digits": None,
+        "payment_method": "admin_manual",
+        "payment_remark": request.reason,
+        "payment_screenshot": None,
+        "payment_rrn": None,
+        "payment_received_paisa": request.amount_paisa,
+        "raw_message": None,
+        "sms_fingerprint": None,
+        "overpayment_paisa": 0,
+        "status": "success",
+        "automation_state": None,
+        "retry_count": 0,
+        "notes": f"Admin recharge by {user_data['username']}: {request.reason}",
+        "admin_action": "recharge",
+        "admin_id": user_data["user_id"],
+        "admin_username": user_data["username"],
+        "created_at": now,
+        "updated_at": now,
+        "completed_at": now
+    }
+    await db.orders.insert_one(order_doc)
+    
+    # 4. Create admin action audit log
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "admin_username": user_data["username"],
+        "action_type": "wallet_recharge",
+        "target_id": user_id,
+        "target_username": user["username"],
+        "order_id": order_id,
+        "amount_paisa": request.amount_paisa,
+        "reason": request.reason,
+        "balance_before_paisa": old_balance,
+        "balance_after_paisa": new_balance,
+        "details": f"Recharged ₹{paisa_to_rupees(request.amount_paisa):.2f} to {user['username']}'s wallet. Reason: {request.reason}",
+        "created_at": now
+    })
+    
+    logger.info(f"Admin {user_data['username']} recharged {request.amount_paisa} paisa to user {user['username']}. New balance: {new_balance}")
+    
+    return {
+        "message": f"Successfully recharged ₹{paisa_to_rupees(request.amount_paisa):.2f} to {user['username']}'s wallet",
+        "order_id": order_id,
+        "amount_recharged": paisa_to_rupees(request.amount_paisa),
+        "old_balance": paisa_to_rupees(old_balance),
+        "new_balance": paisa_to_rupees(new_balance)
+    }
+
+@api_router.post("/admin/users/{user_id}/wallet/redeem")
+async def admin_wallet_redeem(user_id: str, request: AdminWalletRedeemRequest, user_data: dict = Depends(get_current_admin)):
+    """
+    Admin manually redeems (deducts) from user wallet.
+    Creates wallet transaction (negative), order record, and audit log.
+    Rules:
+    - Cannot deduct more than current wallet balance
+    - Single-action limit (configurable, default ₹5000)
+    """
+    # Validate user exists
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Validate reason length
+    if len(request.reason.strip()) < 5:
+        raise HTTPException(status_code=400, detail="Reason must be at least 5 characters")
+    
+    old_balance = user.get("wallet_balance_paisa", 0)
+    
+    # Check single-action limit
+    if request.amount_paisa > ADMIN_REDEEM_SINGLE_LIMIT_PAISA:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Single redemption cannot exceed ₹{paisa_to_rupees(ADMIN_REDEEM_SINGLE_LIMIT_PAISA):.2f}"
+        )
+    
+    # Check sufficient balance
+    if request.amount_paisa > old_balance:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Insufficient wallet balance. Current balance: ₹{paisa_to_rupees(old_balance):.2f}"
+        )
+    
+    order_id = str(uuid.uuid4())
+    new_balance = old_balance - request.amount_paisa
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # 1. Update user wallet balance
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"wallet_balance_paisa": new_balance}}
+    )
+    
+    # 2. Create wallet transaction (negative amount)
+    wallet_tx = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "type": "admin_redeem",
+        "amount_paisa": -request.amount_paisa,  # Negative for deduction
+        "order_id": order_id,
+        "balance_before_paisa": old_balance,
+        "balance_after_paisa": new_balance,
+        "description": f"Admin redemption: {request.reason}",
+        "admin_id": user_data["user_id"],
+        "admin_username": user_data["username"],
+        "created_at": now
+    }
+    await db.wallet_transactions.insert_one(wallet_tx)
+    
+    # 3. Create order record for traceability
+    order_doc = {
+        "id": order_id,
+        "order_type": "wallet_load",
+        "user_id": user_id,
+        "username": user["username"],
+        "player_uid": None,
+        "server": None,
+        "package_id": None,
+        "package_name": "Admin Wallet Redemption",
+        "package_type": "admin_redeem",
+        "amount": None,
+        "load_amount_paisa": -request.amount_paisa,  # Negative for deduction
+        "locked_price_paisa": request.amount_paisa,
+        "wallet_used_paisa": 0,
+        "payment_required_paisa": 0,
+        "payment_amount_paisa": 0,
+        "payment_last3digits": None,
+        "payment_method": "admin_manual",
+        "payment_remark": request.reason,
+        "payment_screenshot": None,
+        "payment_rrn": None,
+        "payment_received_paisa": 0,
+        "raw_message": None,
+        "sms_fingerprint": None,
+        "overpayment_paisa": 0,
+        "status": "success",
+        "automation_state": None,
+        "retry_count": 0,
+        "notes": f"Admin redemption by {user_data['username']}: {request.reason}",
+        "admin_action": "redeem",
+        "admin_id": user_data["user_id"],
+        "admin_username": user_data["username"],
+        "created_at": now,
+        "updated_at": now,
+        "completed_at": now
+    }
+    await db.orders.insert_one(order_doc)
+    
+    # 4. Create admin action audit log
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "admin_username": user_data["username"],
+        "action_type": "wallet_redeem",
+        "target_id": user_id,
+        "target_username": user["username"],
+        "order_id": order_id,
+        "amount_paisa": request.amount_paisa,
+        "reason": request.reason,
+        "balance_before_paisa": old_balance,
+        "balance_after_paisa": new_balance,
+        "details": f"Redeemed ₹{paisa_to_rupees(request.amount_paisa):.2f} from {user['username']}'s wallet. Reason: {request.reason}",
+        "created_at": now
+    })
+    
+    logger.info(f"Admin {user_data['username']} redeemed {request.amount_paisa} paisa from user {user['username']}. New balance: {new_balance}")
+    
+    return {
+        "message": f"Successfully redeemed ₹{paisa_to_rupees(request.amount_paisa):.2f} from {user['username']}'s wallet",
+        "order_id": order_id,
+        "amount_redeemed": paisa_to_rupees(request.amount_paisa),
+        "old_balance": paisa_to_rupees(old_balance),
+        "new_balance": paisa_to_rupees(new_balance)
+    }
+
+@api_router.get("/admin/action-logs")
+async def admin_get_action_logs(
+    admin_username: Optional[str] = None,
+    action_type: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 200,
+    user_data: dict = Depends(get_current_admin)
+):
+    """
+    Get admin action audit logs with filters.
+    Filters: admin_username, action_type, date range
+    """
+    query = {}
+    
+    if admin_username:
+        query["admin_username"] = admin_username
+    
+    if action_type:
+        query["action_type"] = action_type
+    
+    # Date range filter
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date
+        if date_query:
+            query["created_at"] = date_query
+    
+    logs = await db.admin_actions.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    
+    # Convert paisa to rupees for display
+    for log in logs:
+        if log.get("amount_paisa"):
+            log["amount"] = paisa_to_rupees(log["amount_paisa"])
+        if log.get("balance_before_paisa") is not None:
+            log["balance_before"] = paisa_to_rupees(log["balance_before_paisa"])
+        if log.get("balance_after_paisa") is not None:
+            log["balance_after"] = paisa_to_rupees(log["balance_after_paisa"])
+    
+    return logs
+
+@api_router.get("/admin/action-logs/action-types")
+async def admin_get_action_types(user_data: dict = Depends(get_current_admin)):
+    """Get distinct action types for filter dropdown"""
+    action_types = await db.admin_actions.distinct("action_type")
+    return action_types
+
+@api_router.get("/admin/action-logs/admins")
+async def admin_get_admin_usernames(user_data: dict = Depends(get_current_admin)):
+    """Get distinct admin usernames for filter dropdown"""
+    admin_usernames = await db.admin_actions.distinct("admin_username")
+    # Filter out None values
+    return [u for u in admin_usernames if u]
+
 # ===== SCHEDULED JOBS ADMIN ENDPOINTS =====
 
 @api_router.get("/admin/jobs/status")
