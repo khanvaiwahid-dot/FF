@@ -570,6 +570,7 @@ class TokenResponse(BaseModel):
     user_type: str
     username: str
     wallet_balance: Optional[float] = None
+    role: Optional[str] = None  # USER, STAFF, ADMIN
 
 class CreateOrderRequest(BaseModel):
     player_uid: str
