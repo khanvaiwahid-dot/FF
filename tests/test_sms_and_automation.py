@@ -503,12 +503,26 @@ class TestBatchAutomation:
 class TestEndToEndPaymentFlow:
     """Test complete payment flow: create order -> send SMS -> verify payment"""
     
-    def test_full_payment_flow_with_sms_matching(self, user_token, package_id, admin_token):
+    def test_full_payment_flow_with_sms_matching(self, admin_token):
         """Test full payment flow: create order -> submit verification -> send SMS -> check status"""
-        user_headers = {"Authorization": f"Bearer {user_token}"}
         admin_headers = {"Authorization": f"Bearer {admin_token}"}
         unique_id = str(uuid.uuid4())[:8]
         last3 = "888"
+        
+        # Create a new test user
+        test_username = f"e2etest_{unique_id}"
+        response = requests.post(f"{BASE_URL}/api/auth/signup", json={
+            "username": test_username,
+            "password": "test123"
+        })
+        assert response.status_code == 200
+        user_token = response.json()["token"]
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        
+        # Get package
+        response = requests.get(f"{BASE_URL}/api/packages/list")
+        packages = response.json()
+        package_id = packages[0]["id"]
         
         # Step 1: Create order
         response = requests.post(f"{BASE_URL}/api/orders/create", headers=user_headers, json={
@@ -525,6 +539,9 @@ class TestEndToEndPaymentFlow:
         order = response.json()
         payment_required = order.get("payment_required", 1.99)
         initial_status = order["status"]
+        
+        # New user should have pending_payment status
+        assert initial_status == "pending_payment", f"New user order should be pending_payment, got {initial_status}"
         
         # Step 3: Submit payment verification
         response = requests.post(f"{BASE_URL}/api/orders/verify-payment", headers=user_headers, json={
@@ -554,10 +571,25 @@ class TestEndToEndPaymentFlow:
             assert updated_order["status"] in ["paid", "queued", "processing", "success"], \
                 f"Order status should change after SMS match, got {updated_order['status']}"
     
-    def test_order_status_tracking(self, user_token, package_id, admin_token):
+    def test_order_status_tracking(self, admin_token):
         """Test order status tracking through various states"""
-        user_headers = {"Authorization": f"Bearer {user_token}"}
         admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        unique_id = str(uuid.uuid4())[:8]
+        
+        # Create a new test user
+        test_username = f"statustrack_{unique_id}"
+        response = requests.post(f"{BASE_URL}/api/auth/signup", json={
+            "username": test_username,
+            "password": "test123"
+        })
+        assert response.status_code == 200
+        user_token = response.json()["token"]
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        
+        # Get package
+        response = requests.get(f"{BASE_URL}/api/packages/list")
+        packages = response.json()
+        package_id = packages[0]["id"]
         
         # Create order
         response = requests.post(f"{BASE_URL}/api/orders/create", headers=user_headers, json={
@@ -567,12 +599,12 @@ class TestEndToEndPaymentFlow:
         assert response.status_code == 200
         order_id = response.json()["order_id"]
         
-        # Check initial status
+        # Check initial status (should be pending_payment for new user)
         response = requests.get(f"{BASE_URL}/api/orders/{order_id}", headers=user_headers)
         order = response.json()
-        assert order["status"] in ["pending_payment", "paid"], f"Initial status should be pending_payment or paid"
+        assert order["status"] == "pending_payment", f"Initial status should be pending_payment, got {order['status']}"
         
-        # Admin can update status
+        # Admin can update status to manual_review
         response = requests.put(
             f"{BASE_URL}/api/admin/orders/{order_id}",
             headers=admin_headers,
