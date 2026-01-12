@@ -157,14 +157,17 @@ def get_role_level(role: str) -> int:
 
 async def expire_old_orders():
     """
-    Expire orders that have been pending_payment for more than 24 hours
-    Runs every hour
+    Expire orders that have been pending_payment for longer than configured time
+    Runs every 10 minutes
     """
     try:
-        expiry_threshold = datetime.now(timezone.utc) - timedelta(hours=24)
+        settings = await get_system_settings()
+        expiry_minutes = settings.get("order_expiry_minutes", 1440)  # Default 24 hours
+        
+        expiry_threshold = datetime.now(timezone.utc) - timedelta(minutes=expiry_minutes)
         expiry_threshold_iso = expiry_threshold.isoformat()
         
-        # Find pending orders older than 24 hours
+        # Find pending orders older than expiry time
         result = await db.orders.update_many(
             {
                 "status": "pending_payment",
@@ -180,7 +183,7 @@ async def expire_old_orders():
         )
         
         if result.modified_count > 0:
-            logger.info(f"Expired {result.modified_count} orders older than 24 hours")
+            logger.info(f"Expired {result.modified_count} orders older than {expiry_minutes} minutes")
             
             # Refund wallet amounts for expired orders
             expired_orders = await db.orders.find(
