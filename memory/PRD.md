@@ -9,44 +9,56 @@ Build a fully automated Free Fire diamonds top-up platform with wallet + SMS pay
 
 ### ✅ Backend - Complete
 - FastAPI server with all CRUD endpoints
-- User authentication (signup, login, JWT)
-- Admin authentication with JWT
+- User/Admin authentication with JWT
 - Products API with full CRUD operations
 - **Integer-based currency system (paisa/cents)**
 - **Unified Orders System** - Both product_topup and wallet_load orders
 - **Payment Rounding Policy** - Round up to nearest 1/5/10 based on amount
-- **Overpayment Handling** - Auto-credit to wallet (suspicious if >3x required)
-- **SMS Payment Verification** - SHA256 fingerprint for uniqueness, RRN tracking
-- Garena Accounts API with encrypted credentials
-- User Management API
-- Dashboard stats endpoint
+- **Overpayment Handling** - Auto-credit to wallet
+- **SMS Payment Verification** - SHA256 fingerprint, RRN tracking
 
-### ✅ P1: Automation System - Complete (Jan 12, 2026)
-- **Garena Automation Module** (`/app/backend/garena_automation.py`)
-  - Playwright with stealth for anti-detection
-  - Login, UID validation, package selection, purchase flow
-  - Screenshot on failure for debugging
-- **Admin Automation Endpoints:**
-  - `GET /api/admin/automation/queue` - View queued/processing orders
-  - `POST /api/admin/orders/{id}/process` - Trigger single order automation
-  - `POST /api/admin/automation/process-all` - Batch process all queued orders
-- **Automation Status Tracking:**
-  - Order statuses: queued → processing → success/failed/manual_review
-  - Retry logic with max 3 attempts
-  - Invalid UID detection
+### ✅ P1: Automation System - Complete
+- Garena Automation Module (`/app/backend/garena_automation.py`)
+- Admin Automation Endpoints for queue management and triggering
 
-### ✅ P1: SMS Forwarder Integration - Complete (Jan 12, 2026)
-- **Android SMS Forwarder App** (`/app/android-sms-forwarder/`)
-  - Auto-detects payment SMS (FonePay, eSewa, Khalti, bank)
-  - Forwards to `/api/sms/receive`
-  - Background service, auto-start on boot
-  - Retry mechanism for failed forwards
-- **SMS Receive Endpoint** (`POST /api/sms/receive`):
-  - Parses FonePay/bank SMS formats
-  - Extracts amount, last3digits, RRN
-  - SHA256 fingerprint for duplicate detection
-  - Auto-matches to pending orders
-  - Credits overpayment to wallet
+### ✅ P1: SMS Forwarder Integration - Complete
+- Android SMS Forwarder App (`/app/android-sms-forwarder/`)
+- SMS receive, parsing, matching endpoints
+
+### ✅ P2: Order Expiry Job - Complete (Jan 12, 2026)
+- **APScheduler** for background jobs
+- `expire_old_orders` job runs hourly:
+  - Expires `pending_payment` orders older than 24 hours
+  - Automatically refunds `wallet_used_paisa` to user wallet
+  - Creates refund wallet transaction record
+- Admin endpoints:
+  - `GET /api/admin/jobs/status` - View scheduler status and jobs
+  - `POST /api/admin/jobs/expire-orders` - Manually trigger job
+  - `GET /api/admin/stats/expiry` - View expiry statistics
+
+### ✅ P2: Suspicious SMS Detection - Complete (Jan 12, 2026)
+- `flag_suspicious_sms` job runs every 15 minutes:
+  - Flags unmatched SMS messages older than 1 hour as suspicious
+  - Sets `suspicious=True` and `suspicious_reason`
+- Admin endpoint:
+  - `POST /api/admin/jobs/flag-suspicious-sms` - Manually trigger job
+
+### ✅ P2: Stuck Order Cleanup - Complete (Jan 12, 2026)
+- `cleanup_processing_orders` job runs every 5 minutes:
+  - Resets orders stuck in `processing` status for >10 minutes back to `queued`
+  - Increments `retry_count` for tracking
+- Admin endpoint:
+  - `POST /api/admin/jobs/cleanup-processing` - Manually trigger job
+
+### ✅ P2: Rate Limiting - Complete (Jan 12, 2026)
+- **SlowAPI** for API rate limiting with proxy support (X-Forwarded-For)
+- Rate limits configured:
+  - Signup: 5/minute
+  - Login: 10/minute
+  - Admin Login: 5/minute
+  - Password Reset: 3/minute
+  - Order Create: 10/minute
+  - SMS Receive: 60/minute
 
 ### ✅ Frontend - Complete
 - Garena-style theme (white/orange/red)
@@ -61,7 +73,8 @@ Build a fully automated Free Fire diamonds top-up platform with wallet + SMS pay
 | 2 | 26/26 | ✅ PASS - Basic functionality |
 | 3 | 16/16 | ✅ PASS - Price update, admin orders |
 | 4 | 25/25 | ✅ PASS - SMS & automation |
-| **Total** | **67/67** | **100% PASS** |
+| 5 | 19/19 | ✅ PASS - Scheduled jobs, rate limiting |
+| **Total** | **86/86** | **100% PASS** |
 
 ---
 
@@ -75,55 +88,51 @@ Build a fully automated Free Fire diamonds top-up platform with wallet + SMS pay
 ```
 /app/
 ├── backend/
-│   ├── server.py              # Main FastAPI server
+│   ├── server.py              # Main FastAPI server with scheduler
 │   ├── garena_automation.py   # Playwright automation module
 │   └── .env
 ├── frontend/
 │   └── src/pages/             # React pages
 ├── android-sms-forwarder/     # Android SMS app (Kotlin)
-│   └── app/src/main/java/com/diamondstore/smsforwarder/
 └── tests/
     ├── test_freefire_topup.py
     ├── test_price_update_and_admin_orders.py
-    └── test_sms_and_automation.py
+    ├── test_sms_and_automation.py
+    └── test_p2_scheduled_jobs_and_rate_limiting.py
 ```
 
 ---
 
-## Key API Endpoints
+## Scheduled Jobs Configuration
+| Job | Interval | Description |
+|-----|----------|-------------|
+| `expire_orders` | 1 hour | Expires pending orders >24h, refunds wallet |
+| `flag_suspicious_sms` | 15 min | Flags unmatched SMS >1h as suspicious |
+| `cleanup_processing` | 5 min | Resets stuck processing orders to queued |
 
-### SMS Integration
-- `POST /api/sms/receive` - Receive SMS from Android app
+---
 
-### Automation
-- `GET /api/admin/automation/queue` - View automation queue
-- `POST /api/admin/orders/{id}/process` - Trigger single automation
-- `POST /api/admin/automation/process-all` - Batch process
-
-### Orders
-- `POST /api/orders/create` - Create product order
-- `POST /api/orders/wallet-load` - Create wallet load order
-- `POST /api/orders/verify-payment` - Verify payment with last3digits
-- `GET /api/admin/orders` - All orders with filters
-- `PUT /api/admin/orders/{id}` - Edit order
+## Rate Limits
+| Endpoint | Limit |
+|----------|-------|
+| `/api/auth/signup` | 5/minute |
+| `/api/auth/login` | 10/minute |
+| `/api/admin/login` | 5/minute |
+| `/api/auth/reset-password` | 3/minute |
+| `/api/orders/create` | 10/minute |
+| `/api/sms/receive` | 60/minute |
 
 ---
 
 ## Pending Tasks
 
-### P2 - Medium Priority
-- [ ] Order expiry job (auto-expire after 24h)
-- [ ] Suspicious SMS detection (unmatched >1 hour)
-- [ ] Rate limiting on API endpoints
-- [ ] Real Garena account configuration for production
-
 ### P3 - Future/Backlog
+- [ ] Build and distribute Android SMS Forwarder APK
 - [ ] Admin action audit logging UI
-- [ ] Build and distribute Android APK
 - [ ] Code refactoring (split server.py into routers)
-- [ ] Production deployment
+- [ ] Production deployment with real Garena credentials
 
 ---
 
 ## MOCKED Features
-⚠️ **Garena Automation** - Currently mocked. Requires real Garena credentials for production. Will fail with 'no_garena_account' or 'login_failed' without valid credentials.
+⚠️ **Garena Automation** - Requires real Garena credentials for production
