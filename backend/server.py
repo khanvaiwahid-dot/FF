@@ -472,6 +472,18 @@ class AdminUpdateOrderRequest(BaseModel):
     status: Optional[str] = None
     notes: Optional[str] = None
 
+class AdminWalletRechargeRequest(BaseModel):
+    amount_paisa: int = Field(..., gt=0, description="Amount in paisa (must be positive integer)")
+    reason: str = Field(..., min_length=5, description="Reason for recharge (min 5 characters)")
+
+class AdminWalletRedeemRequest(BaseModel):
+    amount_paisa: int = Field(..., gt=0, description="Amount in paisa (must be positive integer)")
+    reason: str = Field(..., min_length=5, description="Reason for redemption (min 5 characters)")
+
+# ===== CONFIGURATION =====
+# Admin wallet redeem single-action limit (₹5000 = 500000 paisa)
+ADMIN_REDEEM_SINGLE_LIMIT_PAISA = 500000
+
 # ===== HELPER FUNCTIONS =====
 
 async def credit_wallet(user_id: str, amount_paisa: int, transaction_type: str, 
