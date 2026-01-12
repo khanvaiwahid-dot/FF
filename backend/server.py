@@ -1767,6 +1767,379 @@ async def admin_list_orders(
     
     return orders
 
+# ===== SYSTEM SETTINGS ENDPOINTS =====
+
+class SystemSettingsUpdate(BaseModel):
+    auto_payment_check: Optional[bool] = None
+    auto_topup: Optional[bool] = None
+    max_overpayment_ratio: Optional[int] = None
+    max_wallet_credit: Optional[int] = None
+    automation_fail_threshold: Optional[int] = None
+    automation_fail_window_minutes: Optional[int] = None
+    order_expiry_minutes: Optional[int] = None
+    payment_match_window_minutes: Optional[int] = None
+
+@api_router.get("/admin/system-settings")
+async def get_settings(user_data: dict = Depends(get_current_admin)):
+    """Get current system settings (ADMIN only)"""
+    settings = await get_system_settings()
+    return settings
+
+@api_router.put("/admin/system-settings")
+async def update_settings(request: SystemSettingsUpdate, user_data: dict = Depends(get_current_admin)):
+    """Update system settings (ADMIN only)"""
+    updates = {}
+    old_settings = await get_system_settings()
+    
+    if request.auto_payment_check is not None:
+        updates["auto_payment_check"] = request.auto_payment_check
+    if request.auto_topup is not None:
+        updates["auto_topup"] = request.auto_topup
+    if request.max_overpayment_ratio is not None:
+        if request.max_overpayment_ratio < 1:
+            raise HTTPException(status_code=400, detail="max_overpayment_ratio must be >= 1")
+        updates["max_overpayment_ratio"] = request.max_overpayment_ratio
+    if request.max_wallet_credit is not None:
+        if request.max_wallet_credit < 0:
+            raise HTTPException(status_code=400, detail="max_wallet_credit must be >= 0")
+        updates["max_wallet_credit"] = request.max_wallet_credit
+    if request.automation_fail_threshold is not None:
+        if request.automation_fail_threshold < 1:
+            raise HTTPException(status_code=400, detail="automation_fail_threshold must be >= 1")
+        updates["automation_fail_threshold"] = request.automation_fail_threshold
+    if request.automation_fail_window_minutes is not None:
+        if request.automation_fail_window_minutes < 1:
+            raise HTTPException(status_code=400, detail="automation_fail_window_minutes must be >= 1")
+        updates["automation_fail_window_minutes"] = request.automation_fail_window_minutes
+    if request.order_expiry_minutes is not None:
+        if request.order_expiry_minutes < 1:
+            raise HTTPException(status_code=400, detail="order_expiry_minutes must be >= 1")
+        updates["order_expiry_minutes"] = request.order_expiry_minutes
+    if request.payment_match_window_minutes is not None:
+        if request.payment_match_window_minutes < 1:
+            raise HTTPException(status_code=400, detail="payment_match_window_minutes must be >= 1")
+        updates["payment_match_window_minutes"] = request.payment_match_window_minutes
+    
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid updates provided")
+    
+    new_settings = await update_system_settings(updates)
+    
+    # Audit log
+    await create_audit_log(
+        user_id=user_data["user_id"],
+        username=user_data["username"],
+        role=user_data.get("role", "ADMIN"),
+        action="update_system_settings",
+        entity_type="system_settings",
+        entity_id="system_settings",
+        before={k: old_settings.get(k) for k in updates.keys()},
+        after={k: new_settings.get(k) for k in updates.keys()}
+    )
+    
+    return {"message": "Settings updated", "settings": new_settings}
+
+@api_router.get("/admin/system-alerts")
+async def get_alerts(
+    acknowledged: Optional[bool] = None,
+    severity: Optional[str] = None,
+    limit: int = 50,
+    user_data: dict = Depends(get_current_staff_or_admin)
+):
+    """Get system alerts (STAFF or ADMIN)"""
+    query = {}
+    if acknowledged is not None:
+        query["acknowledged"] = acknowledged
+    if severity:
+        query["severity"] = severity
+    
+    alerts = await db.system_alerts.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    return alerts
+
+@api_router.put("/admin/system-alerts/{alert_id}/acknowledge")
+async def acknowledge_alert(alert_id: str, user_data: dict = Depends(get_current_staff_or_admin)):
+    """Acknowledge a system alert"""
+    result = await db.system_alerts.update_one(
+        {"id": alert_id},
+        {"$set": {
+            "acknowledged": True,
+            "acknowledged_by": user_data["username"],
+            "acknowledged_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return {"message": "Alert acknowledged"}
+
+# ===== MANUAL OPERATIONS ENDPOINTS (STAFF + ADMIN) =====
+
+@api_router.get("/staff/manual-orders")
+async def get_manual_orders(user_data: dict = Depends(get_current_staff_or_admin)):
+    """Get orders needing manual action (STAFF or ADMIN)"""
+    orders = await db.orders.find({
+        "status": {"$in": ["paid", "failed", "invalid_uid", "suspicious", "manual_pending", "manual_review"]}
+    }, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
+    
+    for order in orders:
+        order["locked_price"] = paisa_to_rupees(order.get("locked_price_paisa", 0))
+        order["payment_received"] = paisa_to_rupees(order.get("payment_received_paisa", 0))
+        order["wallet_used"] = paisa_to_rupees(order.get("wallet_used_paisa", 0))
+    
+    return orders
+
+@api_router.post("/staff/orders/{order_id}/mark-success")
+async def staff_mark_success(order_id: str, user_data: dict = Depends(get_current_staff_or_admin)):
+    """Mark order as successfully completed (STAFF or ADMIN)"""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    old_status = order.get("status")
+    
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "status": "success",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "manual_completed_by": user_data["username"]
+        }}
+    )
+    
+    # Audit log
+    await create_audit_log(
+        user_id=user_data["user_id"],
+        username=user_data["username"],
+        role=user_data.get("role", "STAFF"),
+        action="mark_success",
+        entity_type="order",
+        entity_id=order_id,
+        before={"status": old_status},
+        after={"status": "success"},
+        details=f"Manually marked order as successful"
+    )
+    
+    return {"message": "Order marked as success"}
+
+@api_router.post("/staff/orders/{order_id}/mark-failed")
+async def staff_mark_failed(order_id: str, reason: Optional[str] = None, user_data: dict = Depends(get_current_staff_or_admin)):
+    """Mark order as failed (STAFF or ADMIN)"""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    old_status = order.get("status")
+    
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "status": "failed",
+            "failed_reason": reason,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "manual_failed_by": user_data["username"]
+        }}
+    )
+    
+    # Audit log
+    await create_audit_log(
+        user_id=user_data["user_id"],
+        username=user_data["username"],
+        role=user_data.get("role", "STAFF"),
+        action="mark_failed",
+        entity_type="order",
+        entity_id=order_id,
+        before={"status": old_status},
+        after={"status": "failed"},
+        details=f"Manually marked order as failed. Reason: {reason}"
+    )
+    
+    return {"message": "Order marked as failed"}
+
+class EditUIDRequest(BaseModel):
+    player_uid: str = Field(..., min_length=1)
+
+@api_router.put("/staff/orders/{order_id}/edit-uid")
+async def staff_edit_uid(order_id: str, request: EditUIDRequest, user_data: dict = Depends(get_current_staff_or_admin)):
+    """Edit player UID (STAFF or ADMIN)"""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    old_uid = order.get("player_uid")
+    
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "player_uid": request.player_uid,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Audit log
+    await create_audit_log(
+        user_id=user_data["user_id"],
+        username=user_data["username"],
+        role=user_data.get("role", "STAFF"),
+        action="edit_uid",
+        entity_type="order",
+        entity_id=order_id,
+        before={"player_uid": old_uid},
+        after={"player_uid": request.player_uid}
+    )
+    
+    return {"message": "UID updated"}
+
+class AddNoteRequest(BaseModel):
+    note: str = Field(..., min_length=1)
+
+@api_router.post("/staff/orders/{order_id}/add-note")
+async def staff_add_note(order_id: str, request: AddNoteRequest, user_data: dict = Depends(get_current_staff_or_admin)):
+    """Add manual note to order (STAFF or ADMIN)"""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    existing_notes = order.get("manual_notes", [])
+    new_note = {
+        "id": str(uuid.uuid4()),
+        "note": request.note,
+        "by": user_data["username"],
+        "at": datetime.now(timezone.utc).isoformat()
+    }
+    existing_notes.append(new_note)
+    
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"manual_notes": existing_notes, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {"message": "Note added", "note": new_note}
+
+# ===== MANUAL PAYMENT CHECK (STAFF + ADMIN) =====
+
+@api_router.get("/staff/unmatched-payments")
+async def get_unmatched_payments(user_data: dict = Depends(get_current_staff_or_admin)):
+    """Get unmatched/suspicious payments needing review"""
+    payments = await db.sms_messages.find({
+        "$or": [
+            {"used": False},
+            {"status": {"$in": ["suspicious", "duplicate_payment", "manual_review"]}}
+        ]
+    }, {"_id": 0}).sort("parsed_at", -1).limit(200).to_list(200)
+    
+    for p in payments:
+        if p.get("amount_paisa"):
+            p["amount"] = paisa_to_rupees(p["amount_paisa"])
+    
+    return payments
+
+class LinkPaymentRequest(BaseModel):
+    order_id: str
+
+@api_router.post("/staff/payments/{payment_id}/link")
+async def link_payment_to_order(payment_id: str, request: LinkPaymentRequest, user_data: dict = Depends(get_current_staff_or_admin)):
+    """Manually link payment to order (STAFF or ADMIN)"""
+    payment = await db.sms_messages.find_one({"id": payment_id}, {"_id": 0})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    if payment.get("used"):
+        raise HTTPException(status_code=400, detail="Payment already used")
+    
+    order = await db.orders.find_one({"id": request.order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Process the payment for this order
+    status, overpayment, msg = await process_payment(
+        order=order,
+        payment_amount_paisa=payment.get("amount_paisa", 0),
+        rrn=payment.get("rrn"),
+        raw_message=payment.get("raw_message"),
+        sms_fingerprint=payment.get("fingerprint")
+    )
+    
+    # Mark SMS as used
+    await db.sms_messages.update_one(
+        {"id": payment_id},
+        {"$set": {
+            "used": True,
+            "matched_order_id": request.order_id,
+            "matched_by": user_data["username"],
+            "matched_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Add to queue if paid successfully
+    if status == "paid":
+        await add_to_queue(request.order_id)
+    
+    # Audit log
+    await create_audit_log(
+        user_id=user_data["user_id"],
+        username=user_data["username"],
+        role=user_data.get("role", "STAFF"),
+        action="link_payment",
+        entity_type="payment",
+        entity_id=payment_id,
+        details=f"Linked payment to order {request.order_id}. Result: {status}"
+    )
+    
+    return {"message": msg, "status": status, "overpayment_credited": paisa_to_rupees(overpayment)}
+
+@api_router.post("/staff/payments/{payment_id}/mark-invalid")
+async def mark_payment_invalid(payment_id: str, reason: Optional[str] = None, user_data: dict = Depends(get_current_staff_or_admin)):
+    """Mark payment as invalid (STAFF or ADMIN)"""
+    payment = await db.sms_messages.find_one({"id": payment_id}, {"_id": 0})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    await db.sms_messages.update_one(
+        {"id": payment_id},
+        {"$set": {
+            "status": "invalid",
+            "used": True,
+            "invalid_reason": reason,
+            "invalid_by": user_data["username"],
+            "invalid_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Audit log
+    await create_audit_log(
+        user_id=user_data["user_id"],
+        username=user_data["username"],
+        role=user_data.get("role", "STAFF"),
+        action="mark_payment_invalid",
+        entity_type="payment",
+        entity_id=payment_id,
+        details=f"Marked payment as invalid. Reason: {reason}"
+    )
+    
+    return {"message": "Payment marked as invalid"}
+
+# ===== AUDIT LOGS (ADMIN ONLY) =====
+
+@api_router.get("/admin/audit-logs")
+async def get_audit_logs(
+    action: Optional[str] = None,
+    entity_type: Optional[str] = None,
+    user_id: Optional[str] = None,
+    limit: int = 200,
+    user_data: dict = Depends(get_current_admin)
+):
+    """Get audit logs (ADMIN only)"""
+    query = {}
+    if action:
+        query["action"] = action
+    if entity_type:
+        query["entity_type"] = entity_type
+    if user_id:
+        query["user_id"] = user_id
+    
+    logs = await db.audit_logs.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    return logs
+
 @api_router.get("/admin/orders/{order_id}")
 async def admin_get_order(order_id: str, user_data: dict = Depends(get_current_admin)):
     """Get single order details for admin"""
