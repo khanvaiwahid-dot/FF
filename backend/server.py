@@ -202,18 +202,33 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 api_router = APIRouter(prefix="/api")
 
-# Encryption
+# ===== ENCRYPTION - FAIL FAST IF NOT CONFIGURED =====
 from cryptography.fernet import Fernet
 import base64
 
-ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", Fernet.generate_key().decode())
-cipher_suite = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY")
+if not ENCRYPTION_KEY:
+    logger.critical("FATAL: ENCRYPTION_KEY environment variable is not set!")
+    logger.critical("Please set ENCRYPTION_KEY in .env file before starting the server.")
+    logger.critical("Generate a key with: python3 -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"")
+    raise SystemExit("ENCRYPTION_KEY is required. Server cannot start without it.")
+
+try:
+    cipher_suite = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
+    logger.info("Encryption key loaded successfully")
+except Exception as e:
+    logger.critical(f"FATAL: Invalid ENCRYPTION_KEY format: {e}")
+    raise SystemExit(f"Invalid ENCRYPTION_KEY: {e}")
 
 def encrypt_data(data: str) -> str:
     return cipher_suite.encrypt(data.encode()).decode()
 
 def decrypt_data(encrypted_data: str) -> str:
-    return cipher_suite.decrypt(encrypted_data.encode()).decode()
+    try:
+        return cipher_suite.decrypt(encrypted_data.encode()).decode()
+    except Exception as e:
+        logger.error(f"Decryption failed - data may have been encrypted with different key: {e}")
+        raise ValueError("Decryption failed - credentials may be corrupted or encrypted with a different key")
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
