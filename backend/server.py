@@ -950,10 +950,19 @@ async def process_automation_order(order_id: str):
                     }}
                 )
             
+            # Record failure for circuit breaker
+            record_automation_failure()
+            await check_circuit_breaker()
+            
             logger.error(f"Order {order_id} automation failed: {status_msg}")
             
     except Exception as e:
         logger.error(f"Automation error for order {order_id}: {str(e)}")
+        
+        # Record failure for circuit breaker
+        record_automation_failure()
+        await check_circuit_breaker()
+        
         await db.orders.update_one(
             {"id": order_id},
             {"$set": {
