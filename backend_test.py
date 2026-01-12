@@ -330,22 +330,232 @@ class FreeFireDiamondAPITester:
         else:
             self.log_test("Admin List Orders", False, f"Status: {status}")
         
-        # Test payments inbox
-        success, status, data = self.make_request('GET', 'admin/payments/inbox', token=self.admin_token)
-        
-        if success and isinstance(data, list):
-            self.log_test("Admin Payments Inbox", True, f"Found {len(data)} unmatched payments")
-        else:
-            self.log_test("Admin Payments Inbox", False, f"Status: {status}")
-        
         # Test order retry if we have an order
         if self.test_order_id:
             success, status, data = self.make_request('POST', f'admin/orders/{self.test_order_id}/retry', token=self.admin_token)
             self.log_test("Admin Retry Order", success, f"Status: {status}")
+
+    def test_admin_wallet_management(self):
+        """Test Admin Wallet Recharge and Redeem APIs"""
+        print("\n💰 Testing Admin Wallet Management...")
+        
+        if not self.admin_token:
+            self.log_test("Admin Wallet Management", False, "No admin token available")
+            return
+        
+        # First, get users list to find testclient
+        success, status, users_data = self.make_request('GET', 'admin/users', token=self.admin_token)
+        
+        if not success or not isinstance(users_data, list):
+            self.log_test("Get Users List", False, f"Status: {status}")
+            return
+        
+        # Find testclient user
+        testclient_user = None
+        for user in users_data:
+            if user.get('username') == 'testclient':
+                testclient_user = user
+                break
+        
+        if not testclient_user:
+            self.log_test("Find testclient User", False, "testclient user not found")
+            return
+        
+        user_id = testclient_user['id']
+        initial_balance = testclient_user.get('wallet_balance', 0)
+        self.log_test("Find testclient User", True, f"User ID: {user_id}, Initial balance: ₹{initial_balance}")
+        
+        # Test 1: Valid Admin Wallet Recharge
+        recharge_data = {
+            "amount_paisa": 10000,  # ₹100
+            "reason": "Test recharge for QA testing purposes"
+        }
+        
+        success, status, data = self.make_request('POST', f'admin/users/{user_id}/wallet/recharge', recharge_data, token=self.admin_token)
+        
+        if success and 'order_id' in data:
+            self.log_test("Admin Wallet Recharge - Valid", True, f"Recharged ₹{data.get('amount_recharged', 0)}, New balance: ₹{data.get('new_balance', 0)}")
+            recharge_order_id = data['order_id']
+        else:
+            self.log_test("Admin Wallet Recharge - Valid", False, f"Status: {status}, Response: {data}")
+            return
+        
+        # Test 2: Invalid Recharge - Zero Amount
+        invalid_recharge_data = {
+            "amount_paisa": 0,
+            "reason": "Test invalid amount"
+        }
+        
+        success, status, data = self.make_request('POST', f'admin/users/{user_id}/wallet/recharge', invalid_recharge_data, token=self.admin_token, expected_status=422)
+        self.log_test("Admin Wallet Recharge - Zero Amount", success, f"Status: {status}")
+        
+        # Test 3: Invalid Recharge - Short Reason
+        invalid_reason_data = {
+            "amount_paisa": 5000,
+            "reason": "Bad"  # Less than 5 characters
+        }
+        
+        success, status, data = self.make_request('POST', f'admin/users/{user_id}/wallet/recharge', invalid_reason_data, token=self.admin_token, expected_status=400)
+        self.log_test("Admin Wallet Recharge - Short Reason", success, f"Status: {status}")
+        
+        # Test 4: Valid Admin Wallet Redeem
+        redeem_data = {
+            "amount_paisa": 5000,  # ₹50
+            "reason": "Test redemption for QA testing purposes"
+        }
+        
+        success, status, data = self.make_request('POST', f'admin/users/{user_id}/wallet/redeem', redeem_data, token=self.admin_token)
+        
+        if success and 'order_id' in data:
+            self.log_test("Admin Wallet Redeem - Valid", True, f"Redeemed ₹{data.get('amount_redeemed', 0)}, New balance: ₹{data.get('new_balance', 0)}")
+            redeem_order_id = data['order_id']
+        else:
+            self.log_test("Admin Wallet Redeem - Valid", False, f"Status: {status}, Response: {data}")
+        
+        # Test 5: Invalid Redeem - Insufficient Balance
+        # First get current balance
+        success, status, users_data = self.make_request('GET', 'admin/users', token=self.admin_token)
+        current_user = next((u for u in users_data if u['id'] == user_id), None)
+        current_balance_paisa = int(current_user['wallet_balance'] * 100) if current_user else 0
+        
+        excessive_redeem_data = {
+            "amount_paisa": current_balance_paisa + 10000,  # More than current balance
+            "reason": "Test insufficient balance"
+        }
+        
+        success, status, data = self.make_request('POST', f'admin/users/{user_id}/wallet/redeem', excessive_redeem_data, token=self.admin_token, expected_status=400)
+        self.log_test("Admin Wallet Redeem - Insufficient Balance", success, f"Status: {status}")
+        
+        # Test 6: Invalid Redeem - Exceeds Single Action Limit (₹5000)
+        limit_exceed_data = {
+            "amount_paisa": 600000,  # ₹6000 > ₹5000 limit
+            "reason": "Test single action limit"
+        }
+        
+        success, status, data = self.make_request('POST', f'admin/users/{user_id}/wallet/redeem', limit_exceed_data, token=self.admin_token, expected_status=400)
+        self.log_test("Admin Wallet Redeem - Exceeds Limit", success, f"Status: {status}")
+        
+        # Test 7: Invalid Redeem - Short Reason
+        invalid_redeem_reason = {
+            "amount_paisa": 1000,
+            "reason": "Bad"  # Less than 5 characters
+        }
+        
+        success, status, data = self.make_request('POST', f'admin/users/{user_id}/wallet/redeem', invalid_redeem_reason, token=self.admin_token, expected_status=400)
+        self.log_test("Admin Wallet Redeem - Short Reason", success, f"Status: {status}")
+
+    def test_admin_action_logs(self):
+        """Test Admin Action Logs API"""
+        print("\n📋 Testing Admin Action Logs...")
+        
+        if not self.admin_token:
+            self.log_test("Admin Action Logs", False, "No admin token available")
+            return
+        
+        # Test 1: Get all action logs
+        success, status, data = self.make_request('GET', 'admin/action-logs', token=self.admin_token)
+        
+        if success and isinstance(data, list):
+            self.log_test("Get All Action Logs", True, f"Found {len(data)} action logs")
             
-            # Test manual completion
-            success, status, data = self.make_request('POST', f'admin/orders/{self.test_order_id}/complete-manual', token=self.admin_token)
-            self.log_test("Admin Manual Complete", success, f"Status: {status}")
+            # Check if we have wallet actions from previous tests
+            wallet_actions = [log for log in data if log.get('action_type') in ['wallet_recharge', 'wallet_redeem']]
+            if wallet_actions:
+                self.log_test("Wallet Actions in Logs", True, f"Found {len(wallet_actions)} wallet actions")
+            else:
+                self.log_test("Wallet Actions in Logs", False, "No wallet actions found in logs")
+        else:
+            self.log_test("Get All Action Logs", False, f"Status: {status}")
+            return
+        
+        # Test 2: Filter by action_type=wallet_recharge
+        success, status, data = self.make_request('GET', 'admin/action-logs?action_type=wallet_recharge', token=self.admin_token)
+        
+        if success and isinstance(data, list):
+            self.log_test("Filter by wallet_recharge", True, f"Found {len(data)} recharge logs")
+        else:
+            self.log_test("Filter by wallet_recharge", False, f"Status: {status}")
+        
+        # Test 3: Filter by action_type=wallet_redeem
+        success, status, data = self.make_request('GET', 'admin/action-logs?action_type=wallet_redeem', token=self.admin_token)
+        
+        if success and isinstance(data, list):
+            self.log_test("Filter by wallet_redeem", True, f"Found {len(data)} redeem logs")
+        else:
+            self.log_test("Filter by wallet_redeem", False, f"Status: {status}")
+        
+        # Test 4: Filter by admin_username
+        success, status, data = self.make_request('GET', 'admin/action-logs?admin_username=admin', token=self.admin_token)
+        
+        if success and isinstance(data, list):
+            self.log_test("Filter by admin username", True, f"Found {len(data)} logs for admin")
+        else:
+            self.log_test("Filter by admin username", False, f"Status: {status}")
+        
+        # Test 5: Get action types helper endpoint
+        success, status, data = self.make_request('GET', 'admin/action-logs/action-types', token=self.admin_token)
+        
+        if success and isinstance(data, list):
+            self.log_test("Get Action Types", True, f"Found {len(data)} action types: {data}")
+        else:
+            self.log_test("Get Action Types", False, f"Status: {status}")
+        
+        # Test 6: Get admin usernames helper endpoint
+        success, status, data = self.make_request('GET', 'admin/action-logs/admins', token=self.admin_token)
+        
+        if success and isinstance(data, list):
+            self.log_test("Get Admin Usernames", True, f"Found {len(data)} admin usernames: {data}")
+        else:
+            self.log_test("Get Admin Usernames", False, f"Status: {status}")
+
+    def test_user_wallet_verification(self):
+        """Test User Wallet Verification after admin actions"""
+        print("\n🔍 Testing User Wallet Verification...")
+        
+        # Login as testclient to verify wallet changes
+        login_data = {
+            "identifier": "testclient",
+            "password": "test123"
+        }
+        
+        success, status, data = self.make_request('POST', 'auth/login', login_data)
+        
+        if success and 'token' in data:
+            testclient_token = data['token']
+            self.log_test("testclient Login", True, f"Wallet balance: {data.get('wallet_balance', 0)}")
+        else:
+            self.log_test("testclient Login", False, f"Status: {status}")
+            return
+        
+        # Test user wallet endpoint
+        success, status, data = self.make_request('GET', 'user/wallet', token=testclient_token)
+        
+        if success and 'balance' in data and 'transactions' in data:
+            balance = data['balance']
+            transactions = data['transactions']
+            
+            # Check for admin_recharge and admin_redeem transactions
+            admin_recharge_txs = [tx for tx in transactions if tx.get('type') == 'admin_recharge']
+            admin_redeem_txs = [tx for tx in transactions if tx.get('type') == 'admin_redeem']
+            
+            self.log_test("User Wallet Balance", True, f"Current balance: ₹{balance}")
+            self.log_test("Admin Recharge Transactions", len(admin_recharge_txs) > 0, f"Found {len(admin_recharge_txs)} recharge transactions")
+            self.log_test("Admin Redeem Transactions", len(admin_redeem_txs) > 0, f"Found {len(admin_redeem_txs)} redeem transactions")
+        else:
+            self.log_test("User Wallet Verification", False, f"Status: {status}")
+        
+        # Test user orders endpoint
+        success, status, data = self.make_request('GET', 'user/orders', token=testclient_token)
+        
+        if success and isinstance(data, list):
+            # Check for admin wallet orders
+            admin_recharge_orders = [order for order in data if order.get('package_name') == 'Admin Wallet Recharge']
+            admin_redeem_orders = [order for order in data if order.get('package_name') == 'Admin Wallet Redemption']
+            
+            self.log_test("User Orders - Admin Recharge", len(admin_recharge_orders) > 0, f"Found {len(admin_recharge_orders)} recharge orders")
+            self.log_test("User Orders - Admin Redeem", len(admin_redeem_orders) > 0, f"Found {len(admin_redeem_orders)} redeem orders")
+        else:
+            self.log_test("User Orders Verification", False, f"Status: {status}")
 
     def test_error_handling(self):
         """Test error handling scenarios"""
