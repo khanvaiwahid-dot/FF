@@ -2066,7 +2066,7 @@ async def admin_wallet_recharge(user_id: str, request: AdminWalletRechargeReques
         "payment_method": "admin_manual",
         "payment_remark": request.reason,
         "payment_screenshot": None,
-        "payment_rrn": None,
+        "payment_rrn": f"ADMIN_RECHARGE_{order_id[:8].upper()}",
         "payment_received_paisa": request.amount_paisa,
         "raw_message": None,
         "sms_fingerprint": None,
