@@ -101,9 +101,25 @@ const AdminDashboard = () => {
       await axios.post(`${API}/admin/orders/${orderId}/retry`);
       toast.success('Order queued for retry');
       fetchAutomationStatus();
+      fetchAutomationIssues();
       fetchDashboardStats();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to retry order');
+    }
+  };
+
+  const handleMarkSuccess = async (orderId) => {
+    if (!window.confirm('Mark this order as successfully completed? Only do this if you have manually processed the top-up.')) {
+      return;
+    }
+    try {
+      await axios.post(`${API}/admin/orders/${orderId}/mark-success`);
+      toast.success('Order marked as successful');
+      fetchAutomationStatus();
+      fetchAutomationIssues();
+      fetchDashboardStats();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to mark order');
     }
   };
 
