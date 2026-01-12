@@ -4,7 +4,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { useAuth, API } from '@/App';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Wallet as WalletIcon, CreditCard } from 'lucide-react';
+import { ArrowLeft, Wallet as WalletIcon, CreditCard, CheckCircle } from 'lucide-react';
 
 const PaymentMethod = () => {
   const { orderId } = useParams();
@@ -67,9 +67,67 @@ const PaymentMethod = () => {
     );
   }
 
-  const walletCanCoverFull = walletBalance >= order.payment_amount;
+  // Check if order is already fully paid by wallet
+  const alreadyPaidByWallet = order.wallet_used > 0 && order.payment_amount === 0;
+  
+  // Calculate potential wallet usage
+  const walletCanCoverFull = walletBalance >= order.payment_amount && order.payment_amount > 0;
   const walletAmount = useWallet ? Math.min(walletBalance, order.payment_amount) : 0;
   const fonepayAmount = order.payment_amount - walletAmount;
+
+  // If already paid by wallet, show success
+  if (alreadyPaidByWallet) {
+    return (
+      <div className="min-h-screen bg-gray-50 pb-20">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
+          <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-3">
+            <button
+              onClick={() => navigate('/')}
+              data-testid="back-button"
+              className="text-gray-600 hover:text-gray-900"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h1 className="text-lg font-heading font-bold text-gray-900">Payment Complete</h1>
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+          <div className="bg-green-50 border border-green-200 rounded-2xl p-8 text-center">
+            <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+            <h2 className="text-2xl font-heading font-bold text-gray-900 mb-2">Payment Successful!</h2>
+            <p className="text-gray-600 mb-4">Your order has been paid using your wallet balance.</p>
+            
+            <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6 inline-block">
+              <div className="text-sm text-gray-600">Amount Paid</div>
+              <div className="text-3xl font-bold text-green-600">₹{order.wallet_used?.toFixed(2)}</div>
+              <div className="text-xs text-gray-500">from wallet</div>
+            </div>
+
+            <div className="space-y-3">
+              <Button
+                onClick={() => navigate(`/order/${orderId}`)}
+                data-testid="view-order-button"
+                className="w-full bg-primary hover:bg-primary-hover text-white font-bold h-12 rounded-full"
+              >
+                View Order Status
+              </Button>
+              <Button
+                onClick={() => navigate('/')}
+                variant="outline"
+                className="w-full border-gray-300 text-gray-700 hover:bg-gray-50 h-12 rounded-full"
+              >
+                Back to Home
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -101,18 +159,18 @@ const PaymentMethod = () => {
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Order Amount</span>
-              <span className="text-gray-900 font-bold">₹{order.locked_price || order.amount}</span>
+              <span className="text-gray-900 font-bold">₹{order.locked_price?.toFixed(2) || order.amount}</span>
             </div>
             {order.wallet_used > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Wallet Used</span>
-                <span className="text-green-600">-₹{order.wallet_used}</span>
+                <span className="text-green-600">-₹{order.wallet_used?.toFixed(2)}</span>
               </div>
             )}
             <div className="border-t border-gray-200 pt-2 mt-2">
               <div className="flex justify-between">
                 <span className="text-gray-600">Payment Required</span>
-                <span className="text-primary font-bold text-lg">₹{order.payment_amount}</span>
+                <span className="text-primary font-bold text-lg">₹{order.payment_amount?.toFixed(2)}</span>
               </div>
             </div>
           </div>
@@ -134,7 +192,7 @@ const PaymentMethod = () => {
             </div>
           </div>
 
-          {walletBalance > 0 && (
+          {walletBalance > 0 && order.payment_amount > 0 && (
             <button
               onClick={() => setUseWallet(!useWallet)}
               data-testid="use-wallet-toggle"
@@ -151,7 +209,7 @@ const PaymentMethod = () => {
                   </p>
                   <p className="text-sm text-gray-600 mt-1">
                     {walletCanCoverFull 
-                      ? `Pay ₹${order.payment_amount} from wallet`
+                      ? `Pay ₹${order.payment_amount?.toFixed(2)} from your wallet`
                       : `Pay ₹${walletBalance.toFixed(2)} from wallet + ₹${(order.payment_amount - walletBalance).toFixed(2)} via FonePay`
                     }
                   </p>
@@ -165,6 +223,12 @@ const PaymentMethod = () => {
                 )}
               </div>
             </button>
+          )}
+
+          {walletBalance === 0 && (
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-center">
+              <p className="text-gray-500 text-sm">No wallet balance available</p>
+            </div>
           )}
         </div>
 
@@ -224,7 +288,7 @@ const PaymentMethod = () => {
               <div className="border-t border-orange-200 pt-3">
                 <div className="flex justify-between">
                   <span className="text-gray-900 font-bold">Total</span>
-                  <span className="text-primary font-bold text-xl">₹{order.payment_amount}</span>
+                  <span className="text-primary font-bold text-xl">₹{order.payment_amount?.toFixed(2)}</span>
                 </div>
               </div>
             </div>

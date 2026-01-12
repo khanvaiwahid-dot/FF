@@ -4,8 +4,6 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { useAuth, API } from '@/App';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { ArrowLeft, Upload, CreditCard } from 'lucide-react';
 
 const PaymentDetails = () => {
@@ -167,51 +165,57 @@ const PaymentDetails = () => {
           <div className="space-y-3">
             {useWallet && walletAmount > 0 && (
               <div className="flex justify-between">
-                <span className="text-gray-600">Wallet Payment</span>
+                <span className="text-gray-700">Wallet Payment</span>
                 <span className="text-green-600 font-semibold">₹{walletAmount.toFixed(2)}</span>
               </div>
             )}
             {fonepayAmount > 0 && (
               <div className="flex justify-between">
-                <span className="text-gray-600">FonePay Payment</span>
+                <span className="text-gray-700">FonePay Payment</span>
                 <span className="text-primary font-semibold">₹{fonepayAmount.toFixed(2)}</span>
               </div>
             )}
             <div className="border-t border-orange-200 pt-3">
               <div className="flex justify-between">
                 <span className="text-gray-900 font-bold">Total Amount</span>
-                <span className="text-primary font-bold text-xl">₹{order.payment_amount}</span>
+                <span className="text-primary font-bold text-xl">₹{order.payment_amount?.toFixed(2)}</span>
               </div>
             </div>
           </div>
         </div>
 
         {/* Payment Confirmation Form */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-4 shadow-sm">
-          <h2 className="text-xl font-heading font-bold text-gray-900">Confirm Your Payment</h2>
-          <p className="text-sm text-gray-600">
+        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+          <h2 className="text-xl font-heading font-bold text-gray-900 mb-2">Confirm Your Payment</h2>
+          <p className="text-sm text-gray-600 mb-6">
             After completing the payment, please fill in the details below to verify your transaction.
           </p>
 
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="sent_amount" className="text-gray-700">Amount Sent (₹) *</Label>
-              <Input
+          <div className="space-y-5">
+            {/* Amount Sent */}
+            <div>
+              <label htmlFor="sent_amount" className="block text-sm font-semibold text-gray-900 mb-2">
+                Amount Sent (₹) <span className="text-red-500">*</span>
+              </label>
+              <input
                 id="sent_amount"
                 data-testid="payment-amount-input"
                 type="number"
                 step="0.01"
-                placeholder="Amount you sent"
+                placeholder="Enter amount you sent"
                 value={paymentForm.sent_amount}
                 onChange={(e) => setPaymentForm({ ...paymentForm, sent_amount: e.target.value })}
-                className="border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary rounded-xl h-12 text-gray-900"
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900 bg-white placeholder-gray-400 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
                 required
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="last_3_digits" className="text-gray-700">Last 3 Digits of Phone Number *</Label>
-              <Input
+            {/* Last 3 Digits */}
+            <div>
+              <label htmlFor="last_3_digits" className="block text-sm font-semibold text-gray-900 mb-2">
+                Last 3 Digits of Phone Number <span className="text-red-500">*</span>
+              </label>
+              <input
                 id="last_3_digits"
                 data-testid="payment-last3digits-input"
                 type="text"
@@ -219,53 +223,61 @@ const PaymentDetails = () => {
                 placeholder="e.g., 910"
                 value={paymentForm.last_3_digits}
                 onChange={(e) => setPaymentForm({ ...paymentForm, last_3_digits: e.target.value.replace(/\D/g, '') })}
-                className="border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary rounded-xl h-12 text-gray-900"
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900 bg-white placeholder-gray-400 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
                 required
               />
-              <p className="text-xs text-gray-500">Last 3 digits of phone linked to your payment bank/wallet</p>
+              <p className="mt-1 text-xs text-gray-500">Last 3 digits of phone linked to your payment bank/wallet</p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="remark" className="text-gray-700">Remarks (Optional)</Label>
-              <Input
+            {/* Remarks */}
+            <div>
+              <label htmlFor="remark" className="block text-sm font-semibold text-gray-900 mb-2">
+                Remarks (Optional)
+              </label>
+              <input
                 id="remark"
                 data-testid="payment-remark-input"
                 type="text"
                 placeholder="Any remark you added during payment"
                 value={paymentForm.remark}
                 onChange={(e) => setPaymentForm({ ...paymentForm, remark: e.target.value })}
-                className="border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary rounded-xl h-12 text-gray-900"
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900 bg-white placeholder-gray-400 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="screenshot" className="text-gray-700">Payment Screenshot (Optional)</Label>
+            {/* Screenshot */}
+            <div>
+              <label htmlFor="screenshot" className="block text-sm font-semibold text-gray-900 mb-2">
+                Payment Screenshot (Optional)
+              </label>
               <div className="relative">
-                <Input
+                <input
                   id="screenshot"
                   data-testid="payment-screenshot-input"
                   type="text"
-                  placeholder="Upload to imgur and paste URL"
+                  placeholder="Upload to imgur and paste URL here"
                   value={paymentForm.payment_screenshot}
                   onChange={(e) => setPaymentForm({ ...paymentForm, payment_screenshot: e.target.value })}
-                  className="border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary rounded-xl h-12 text-gray-900 pr-10"
+                  className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-xl text-gray-900 bg-white placeholder-gray-400 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
                 />
-                <Upload className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Upload className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               </div>
-              <p className="text-xs text-gray-500">Upload screenshot to imgur.com and paste the URL here</p>
+              <p className="mt-1 text-xs text-gray-500">Upload screenshot to imgur.com and paste the URL here</p>
             </div>
 
+            {/* Info Box */}
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
               <p className="text-sm text-blue-800">
                 ℹ️ We will automatically verify your payment using SMS notifications. This usually takes a few seconds.
               </p>
             </div>
 
+            {/* Submit Button */}
             <Button
               onClick={handleVerifyPayment}
               data-testid="verify-payment-button"
               disabled={submitting}
-              className="w-full bg-primary hover:bg-primary-hover text-white font-bold h-12 rounded-full transition-all disabled:opacity-50"
+              className="w-full bg-primary hover:bg-primary-hover text-white font-bold h-14 rounded-full transition-all disabled:opacity-50 text-lg"
             >
               {submitting ? 'Verifying Payment...' : 'Check Payment'}
             </Button>
