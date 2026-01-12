@@ -340,13 +340,60 @@ SECRET_KEY = os.environ.get("JWT_SECRET", "nex-store-secret-key-change-in-produc
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 10080  # 7 days
 
+# ===== AUDIT LOGGING =====
+
+async def create_audit_log(
+    user_id: str,
+    username: str,
+    role: str,
+    action: str,
+    entity_type: str,
+    entity_id: str,
+    before: Optional[dict] = None,
+    after: Optional[dict] = None,
+    details: Optional[str] = None
+):
+    """Create an audit log entry for any admin/staff action"""
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "username": username,
+        "role": role,
+        "action": action,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "before": before,
+        "after": after,
+        "details": details,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+
+async def create_system_alert(
+    alert_type: str,
+    severity: str,  # info, warning, critical
+    message: str,
+    entity_id: Optional[str] = None,
+    metadata: Optional[dict] = None
+):
+    """Create a system alert for admin notification"""
+    await db.system_alerts.insert_one({
+        "id": str(uuid.uuid4()),
+        "type": alert_type,
+        "severity": severity,
+        "message": message,
+        "entity_id": entity_id,
+        "metadata": metadata,
+        "acknowledged": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+
 # ===== CONFIGURATION =====
 # All amounts stored in PAISA (1/100 of rupee) to avoid float issues
 # Display: paisa / 100 = rupees
 
-# Overpayment safety limits
-MAX_OVERPAYMENT_RATIO = 3.0  # If payment > required * 3, mark suspicious
-MAX_AUTO_CREDIT_AMOUNT_PAISA = 100000  # Max ₹1000 auto credit, else suspicious
+# Overpayment safety limits (loaded from system_settings at runtime)
+MAX_OVERPAYMENT_RATIO = 3.0  # Default, overridden by system_settings
+MAX_AUTO_CREDIT_AMOUNT_PAISA = 100000  # Default, overridden by system_settings
 
 # Order expiry time
 ORDER_EXPIRY_HOURS = 24
@@ -365,6 +412,7 @@ ORDER_STATUSES = [
     "success",            # Completed successfully
     "failed",             # Automation failed
     "manual_review",      # Needs admin review
+    "manual_pending",     # Paid but auto_topup disabled, needs manual processing
     "suspicious",         # Suspicious payment/activity
     "duplicate_payment",  # Duplicate RRN detected
     "expired",            # Not paid within time limit
