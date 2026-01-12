@@ -28,9 +28,15 @@ const AdminDashboard = () => {
   const { user, logout } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [automationStatus, setAutomationStatus] = useState(null);
+  const [processingOrder, setProcessingOrder] = useState(null);
 
   useEffect(() => {
     fetchDashboardStats();
+    fetchAutomationStatus();
+    // Poll automation status every 10 seconds
+    const interval = setInterval(fetchAutomationStatus, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchDashboardStats = async () => {
@@ -41,6 +47,38 @@ const AdminDashboard = () => {
       toast.error('Failed to load dashboard stats');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAutomationStatus = async () => {
+    try {
+      const response = await axios.get(`${API}/admin/automation/queue`);
+      setAutomationStatus(response.data);
+    } catch (error) {
+      console.error('Failed to fetch automation status');
+    }
+  };
+
+  const handleProcessOrder = async (orderId) => {
+    setProcessingOrder(orderId);
+    try {
+      await axios.post(`${API}/admin/orders/${orderId}/process`);
+      toast.success('Automation started');
+      setTimeout(fetchAutomationStatus, 2000);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to start automation');
+    } finally {
+      setProcessingOrder(null);
+    }
+  };
+
+  const handleProcessAll = async () => {
+    try {
+      const response = await axios.post(`${API}/admin/automation/process-all`);
+      toast.success(`Processing ${response.data.queued_count} orders`);
+      setTimeout(fetchAutomationStatus, 2000);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to process orders');
     }
   };
 
