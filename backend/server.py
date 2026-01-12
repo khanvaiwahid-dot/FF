@@ -2089,6 +2089,98 @@ async def admin_expiry_stats(user_data: dict = Depends(get_current_admin)):
         "unmatched_sms_count": unmatched_sms_count
     }
 
+@api_router.get("/admin/health")
+async def admin_health_check(user_data: dict = Depends(get_current_admin)):
+    """
+    Comprehensive health check for admin - checks encryption, Garena accounts, and system status.
+    Returns warnings for any issues that need attention.
+    """
+    warnings = []
+    errors = []
+    
+    # Check 1: Verify encryption key is set (should always pass since server wouldn't start otherwise)
+    if not ENCRYPTION_KEY:
+        errors.append("CRITICAL: ENCRYPTION_KEY is not set!")
+    
+    # Check 2: Verify Garena accounts can be decrypted
+    garena_accounts = await db.garena_accounts.find({}, {"_id": 0}).to_list(100)
+    corrupted_accounts = []
+    valid_accounts = 0
+    active_accounts = 0
+    
+    for acc in garena_accounts:
+        try:
+            # Try to decrypt password and pin
+            if acc.get("password"):
+                decrypt_data(acc["password"])
+            if acc.get("pin"):
+                decrypt_data(acc["pin"])
+            valid_accounts += 1
+            if acc.get("active"):
+                active_accounts += 1
+        except Exception as e:
+            corrupted_accounts.append({
+                "email": acc.get("email"),
+                "error": "Cannot decrypt credentials - likely encrypted with different key"
+            })
+    
+    if corrupted_accounts:
+        errors.append(f"CRITICAL: {len(corrupted_accounts)} Garena account(s) have corrupted credentials and must be re-added!")
+        for acc in corrupted_accounts:
+            errors.append(f"  - {acc['email']}: {acc['error']}")
+    
+    if active_accounts == 0:
+        warnings.append("WARNING: No active Garena accounts configured. Automation will not work!")
+    
+    # Check 3: Check for stuck orders
+    stuck_processing = await db.orders.count_documents({
+        "status": "processing",
+        "processing_started_at": {"$lt": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()}
+    })
+    if stuck_processing > 0:
+        warnings.append(f"WARNING: {stuck_processing} order(s) stuck in 'processing' status for >10 minutes")
+    
+    # Check 4: Check automation queue
+    queued_count = await db.orders.count_documents({"status": "queued"})
+    if queued_count > 20:
+        warnings.append(f"WARNING: {queued_count} orders in automation queue - consider processing")
+    
+    # Check 5: Check for orders pending payment >12h
+    old_pending = await db.orders.count_documents({
+        "status": "pending_payment",
+        "created_at": {"$lt": (datetime.now(timezone.utc) - timedelta(hours=12)).isoformat()}
+    })
+    if old_pending > 0:
+        warnings.append(f"INFO: {old_pending} order(s) pending payment for >12 hours (will expire at 24h)")
+    
+    # Check 6: Check scheduler status
+    scheduler_running = scheduler.running
+    if not scheduler_running:
+        errors.append("CRITICAL: Background scheduler is not running!")
+    
+    # Determine overall status
+    if errors:
+        status = "CRITICAL"
+    elif warnings:
+        status = "WARNING"
+    else:
+        status = "HEALTHY"
+    
+    return {
+        "status": status,
+        "errors": errors,
+        "warnings": warnings,
+        "garena_accounts": {
+            "total": len(garena_accounts),
+            "valid": valid_accounts,
+            "active": active_accounts,
+            "corrupted": len(corrupted_accounts)
+        },
+        "scheduler_running": scheduler_running,
+        "queued_orders": queued_count,
+        "encryption_key_set": bool(ENCRYPTION_KEY)
+    }
+
 # ===== INIT ENDPOINT =====
 
 @api_router.post("/admin/init")
