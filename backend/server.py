@@ -2,7 +2,7 @@
 Nex-Store Backend Server
 Free Fire Diamond Top-Up Platform with Wallet + SMS Payment Verification
 """
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, BackgroundTasks
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, BackgroundTasks, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -19,6 +19,15 @@ from datetime import datetime, timezone, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import asyncio
+from contextlib import asynccontextmanager
+
+# Rate limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+# Background scheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -31,7 +40,158 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-app = FastAPI(title="Nex-Store API", version="2.0")
+# Rate limiter setup
+limiter = Limiter(key_func=get_remote_address)
+
+# Background scheduler for periodic tasks
+scheduler = AsyncIOScheduler()
+
+# ===== SCHEDULED JOBS =====
+
+async def expire_old_orders():
+    """
+    Expire orders that have been pending_payment for more than 24 hours
+    Runs every hour
+    """
+    try:
+        expiry_threshold = datetime.now(timezone.utc) - timedelta(hours=24)
+        expiry_threshold_iso = expiry_threshold.isoformat()
+        
+        # Find pending orders older than 24 hours
+        result = await db.orders.update_many(
+            {
+                "status": "pending_payment",
+                "created_at": {"$lt": expiry_threshold_iso}
+            },
+            {
+                "$set": {
+                    "status": "expired",
+                    "expired_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }
+            }
+        )
+        
+        if result.modified_count > 0:
+            logger.info(f"Expired {result.modified_count} orders older than 24 hours")
+            
+            # Refund wallet amounts for expired orders
+            expired_orders = await db.orders.find(
+                {
+                    "status": "expired",
+                    "expired_at": {"$gt": (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()},
+                    "wallet_used_paisa": {"$gt": 0}
+                },
+                {"_id": 0}
+            ).to_list(100)
+            
+            for order in expired_orders:
+                wallet_used = order.get("wallet_used_paisa", 0)
+                if wallet_used > 0:
+                    # Refund wallet
+                    await db.users.update_one(
+                        {"id": order["user_id"]},
+                        {"$inc": {"wallet_balance_paisa": wallet_used}}
+                    )
+                    
+                    # Log wallet transaction
+                    await db.wallet_transactions.insert_one({
+                        "id": str(uuid.uuid4()),
+                        "user_id": order["user_id"],
+                        "type": "refund",
+                        "amount_paisa": wallet_used,
+                        "reference_id": order["id"],
+                        "description": f"Refund for expired order #{order['id'][:8].upper()}",
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    })
+                    
+                    logger.info(f"Refunded {wallet_used} paisa for expired order {order['id'][:8]}")
+                    
+    except Exception as e:
+        logger.error(f"Error in expire_old_orders job: {str(e)}")
+
+async def flag_suspicious_sms():
+    """
+    Flag SMS messages that remain unmatched for more than 1 hour as suspicious
+    Runs every 15 minutes
+    """
+    try:
+        suspicious_threshold = datetime.now(timezone.utc) - timedelta(hours=1)
+        suspicious_threshold_iso = suspicious_threshold.isoformat()
+        
+        result = await db.sms_messages.update_many(
+            {
+                "used": False,
+                "suspicious": False,
+                "parsed_at": {"$lt": suspicious_threshold_iso}
+            },
+            {
+                "$set": {
+                    "suspicious": True,
+                    "suspicious_at": datetime.now(timezone.utc).isoformat(),
+                    "suspicious_reason": "Unmatched for over 1 hour"
+                }
+            }
+        )
+        
+        if result.modified_count > 0:
+            logger.info(f"Flagged {result.modified_count} SMS messages as suspicious (unmatched >1 hour)")
+            
+    except Exception as e:
+        logger.error(f"Error in flag_suspicious_sms job: {str(e)}")
+
+async def cleanup_processing_orders():
+    """
+    Reset orders stuck in 'processing' status for more than 10 minutes back to 'queued'
+    Runs every 5 minutes
+    """
+    try:
+        stuck_threshold = datetime.now(timezone.utc) - timedelta(minutes=10)
+        stuck_threshold_iso = stuck_threshold.isoformat()
+        
+        result = await db.orders.update_many(
+            {
+                "status": "processing",
+                "processing_started_at": {"$lt": stuck_threshold_iso}
+            },
+            {
+                "$set": {
+                    "status": "queued",
+                    "automation_state": "reset_from_stuck",
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                },
+                "$inc": {"retry_count": 1}
+            }
+        )
+        
+        if result.modified_count > 0:
+            logger.info(f"Reset {result.modified_count} stuck orders from processing to queued")
+            
+    except Exception as e:
+        logger.error(f"Error in cleanup_processing_orders job: {str(e)}")
+
+# ===== APP LIFECYCLE =====
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage app lifecycle - start/stop scheduler"""
+    # Startup
+    scheduler.add_job(expire_old_orders, 'interval', hours=1, id='expire_orders')
+    scheduler.add_job(flag_suspicious_sms, 'interval', minutes=15, id='flag_suspicious_sms')
+    scheduler.add_job(cleanup_processing_orders, 'interval', minutes=5, id='cleanup_processing')
+    scheduler.start()
+    logger.info("Background scheduler started with 3 jobs")
+    
+    yield
+    
+    # Shutdown
+    scheduler.shutdown()
+    logger.info("Background scheduler stopped")
+
+app = FastAPI(title="Nex-Store API", version="2.0", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 api_router = APIRouter(prefix="/api")
 
 # Encryption
