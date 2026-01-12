@@ -1966,6 +1966,106 @@ async def admin_delete_user(user_id: str, user_data: dict = Depends(get_current_
     await db.users.update_one({"id": user_id}, {"$set": {"deleted": True, "blocked": True}})
     return {"message": "User deleted"}
 
+# ===== SCHEDULED JOBS ADMIN ENDPOINTS =====
+
+@api_router.get("/admin/jobs/status")
+async def admin_jobs_status(user_data: dict = Depends(get_current_admin)):
+    """Get status of scheduled background jobs"""
+    jobs = []
+    for job in scheduler.get_jobs():
+        jobs.append({
+            "id": job.id,
+            "name": job.name,
+            "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
+            "trigger": str(job.trigger)
+        })
+    
+    return {
+        "scheduler_running": scheduler.running,
+        "jobs": jobs
+    }
+
+@api_router.post("/admin/jobs/expire-orders")
+async def admin_run_expire_orders(user_data: dict = Depends(get_current_admin)):
+    """Manually run the expire orders job"""
+    await expire_old_orders()
+    
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "manual_job_run",
+        "target_id": None,
+        "details": "Manually ran expire_old_orders job",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "Expire orders job completed"}
+
+@api_router.post("/admin/jobs/flag-suspicious-sms")
+async def admin_run_flag_suspicious(user_data: dict = Depends(get_current_admin)):
+    """Manually run the flag suspicious SMS job"""
+    await flag_suspicious_sms()
+    
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "manual_job_run",
+        "target_id": None,
+        "details": "Manually ran flag_suspicious_sms job",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "Flag suspicious SMS job completed"}
+
+@api_router.post("/admin/jobs/cleanup-processing")
+async def admin_run_cleanup_processing(user_data: dict = Depends(get_current_admin)):
+    """Manually run the cleanup processing orders job"""
+    await cleanup_processing_orders()
+    
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "manual_job_run",
+        "target_id": None,
+        "details": "Manually ran cleanup_processing_orders job",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "Cleanup processing orders job completed"}
+
+@api_router.get("/admin/stats/expiry")
+async def admin_expiry_stats(user_data: dict = Depends(get_current_admin)):
+    """Get statistics on order expiry and suspicious SMS"""
+    # Get expired orders count (last 24h)
+    yesterday = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    expired_count = await db.orders.count_documents({
+        "status": "expired",
+        "expired_at": {"$gt": yesterday}
+    })
+    
+    # Get pending orders older than 12h (candidates for expiry)
+    expiry_warning_threshold = (datetime.now(timezone.utc) - timedelta(hours=12)).isoformat()
+    pending_old_count = await db.orders.count_documents({
+        "status": "pending_payment",
+        "created_at": {"$lt": expiry_warning_threshold}
+    })
+    
+    # Get suspicious SMS count
+    suspicious_sms_count = await db.sms_messages.count_documents({"suspicious": True})
+    
+    # Get unmatched SMS count (not yet suspicious)
+    unmatched_sms_count = await db.sms_messages.count_documents({
+        "used": False,
+        "suspicious": False
+    })
+    
+    return {
+        "expired_last_24h": expired_count,
+        "pending_older_than_12h": pending_old_count,
+        "suspicious_sms_count": suspicious_sms_count,
+        "unmatched_sms_count": unmatched_sms_count
+    }
+
 # ===== INIT ENDPOINT =====
 
 @api_router.post("/admin/init")
