@@ -1,3 +1,7 @@
+"""
+Nex-Store Backend Server
+Free Fire Diamond Top-Up Platform with Wallet + SMS Payment Verification
+"""
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -6,14 +10,19 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import math
+import hashlib
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import asyncio
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -22,60 +31,184 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-app = FastAPI()
+app = FastAPI(title="Nex-Store API", version="2.0")
 api_router = APIRouter(prefix="/api")
 
+# Encryption
 from cryptography.fernet import Fernet
 import base64
 
-# Generate or load encryption key (should be in env in production)
 ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", Fernet.generate_key().decode())
 cipher_suite = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
 
 def encrypt_data(data: str) -> str:
-    """Encrypt sensitive data"""
     return cipher_suite.encrypt(data.encode()).decode()
 
 def decrypt_data(encrypted_data: str) -> str:
-    """Decrypt sensitive data"""
     return cipher_suite.decrypt(encrypted_data.encode()).decode()
 
-def round_up_payment(amount: float) -> float:
-    """Round up payment amount to clean number (no odd decimals).
-    - If amount < 10: round to nearest 1
-    - If amount >= 10: round to nearest 5 or 10
-    """
-    if amount <= 0:
-        return 0.0
-    if amount < 10:
-        return float(math.ceil(amount))
-    elif amount < 100:
-        # Round to nearest 5
-        return float(math.ceil(amount / 5) * 5)
-    else:
-        # Round to nearest 10
-        return float(math.ceil(amount / 10) * 10)
-
+# Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
-SECRET_KEY = os.environ.get("JWT_SECRET", "your-secret-key-change-this")
+SECRET_KEY = os.environ.get("JWT_SECRET", "nex-store-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 10080  # 7 days
 
-# Order states
-ORDER_STATES = [
-    "pending_payment", "paid", "queued", "processing", 
-    "wallet_partial_paid", "wallet_fully_paid", "success", 
-    "failed", "manual_review", "suspicious", "duplicate_payment", "expired"
+# ===== CONFIGURATION =====
+# All amounts stored in PAISA (1/100 of rupee) to avoid float issues
+# Display: paisa / 100 = rupees
+
+# Overpayment safety limits
+MAX_OVERPAYMENT_RATIO = 3.0  # If payment > required * 3, mark suspicious
+MAX_AUTO_CREDIT_AMOUNT_PAISA = 100000  # Max ₹1000 auto credit, else suspicious
+
+# Order expiry time
+ORDER_EXPIRY_HOURS = 24
+
+# SMS suspicious threshold (unmatched for X hours)
+SMS_SUSPICIOUS_HOURS = 1
+
+# ===== ORDER TYPES & STATUSES =====
+ORDER_TYPES = ["product_topup", "wallet_load"]
+
+ORDER_STATUSES = [
+    "pending_payment",    # Waiting for payment
+    "paid",               # Payment received, queued for processing
+    "queued",             # In automation queue
+    "processing",         # Automation in progress
+    "success",            # Completed successfully
+    "failed",             # Automation failed
+    "manual_review",      # Needs admin review
+    "suspicious",         # Suspicious payment/activity
+    "duplicate_payment",  # Duplicate RRN detected
+    "expired",            # Not paid within time limit
+    "invalid_uid",        # Invalid player UID
+    "refunded"            # Refunded to wallet
 ]
 
 AUTOMATION_STATES = [
-    "INIT", "OPEN_SITE", "INPUT_UID", "SELECT_SERVER", 
+    "INIT", "OPEN_SITE", "LOGOUT_PREVIOUS", "INPUT_UID", "SELECT_SERVER",
     "SELECT_PACKAGE", "CONFIRM_PURCHASE", "VERIFY_SUCCESS", "DONE", "FAILED"
 ]
 
-# ===== Models =====
+# ===== UTILITY FUNCTIONS =====
+
+def paisa_to_rupees(paisa: int) -> float:
+    """Convert paisa to rupees for display"""
+    return paisa / 100.0
+
+def rupees_to_paisa(rupees: float) -> int:
+    """Convert rupees to paisa for storage"""
+    return int(round(rupees * 100))
+
+def round_up_payment_paisa(amount_paisa: int) -> int:
+    """Round up payment to clean number (in paisa).
+    Rules:
+    - < ₹100 (10000 paisa): round to nearest ₹1 (100 paisa)
+    - ₹100-500: round to nearest ₹5 (500 paisa)
+    - > ₹500: round to nearest ₹10 (1000 paisa)
+    """
+    if amount_paisa <= 0:
+        return 0
+    
+    rupees = amount_paisa / 100.0
+    
+    if rupees < 100:
+        # Round to nearest 1
+        rounded = math.ceil(rupees)
+    elif rupees <= 500:
+        # Round to nearest 5
+        rounded = math.ceil(rupees / 5) * 5
+    else:
+        # Round to nearest 10
+        rounded = math.ceil(rupees / 10) * 10
+    
+    return int(rounded * 100)
+
+def generate_sms_fingerprint(raw_message: str) -> str:
+    """Generate unique fingerprint for SMS to prevent duplicates"""
+    return hashlib.sha256(raw_message.strip().encode()).hexdigest()
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        user_type = payload.get("type")
+        username = payload.get("username")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return {"user_id": user_id, "type": user_type, "username": username}
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    user_data = await get_current_user(credentials)
+    if user_data["type"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user_data
+
+def parse_sms_message(raw_message: str) -> dict:
+    """Parse SMS payment message to extract details"""
+    import re
+    result = {
+        "amount_paisa": None,
+        "last3digits": None,
+        "rrn": None,
+        "method": None,
+        "remark": None
+    }
+    
+    # Extract amount (Rs 125.00 or Rs 125)
+    amount_match = re.search(r'Rs\.?\s*([0-9,]+\.?[0-9]*)', raw_message, re.IGNORECASE)
+    if amount_match:
+        amount_rupees = float(amount_match.group(1).replace(',', ''))
+        result["amount_paisa"] = rupees_to_paisa(amount_rupees)
+    
+    # Extract last 3 digits - multiple patterns
+    phone_patterns = [
+        r'\d+[\*X]+(\d{3})\b',      # 900****910 or 98XXXXX910
+        r'[X\*]+(\d{3})\b',          # XXX****910
+        r'from\s+\S*?(\d{3})\s+for', # from xxx910 for
+    ]
+    for pattern in phone_patterns:
+        phone_match = re.search(pattern, raw_message, re.IGNORECASE)
+        if phone_match:
+            result["last3digits"] = phone_match.group(1)
+            break
+    
+    # Extract RRN
+    rrn_match = re.search(r'RRN\s*[:\-]?\s*([A-Za-z0-9]+)', raw_message, re.IGNORECASE)
+    if rrn_match:
+        result["rrn"] = rrn_match.group(1)
+    
+    # Extract method and remark (after last comma: "remark /Method")
+    parts = raw_message.split(',')
+    if len(parts) >= 2:
+        last_part = parts[-1].strip()
+        if '/' in last_part:
+            method_parts = last_part.split('/')
+            if len(method_parts) >= 2:
+                result["remark"] = method_parts[0].strip()
+                result["method"] = method_parts[-1].strip()
+    
+    return result
+
+# ===== PYDANTIC MODELS =====
+
 class SignupRequest(BaseModel):
     username: str
     email: Optional[str] = None
@@ -83,7 +216,7 @@ class SignupRequest(BaseModel):
     password: str
 
 class LoginRequest(BaseModel):
-    identifier: str  # username, email or phone
+    identifier: str
     password: str
 
 class ResetPasswordRequest(BaseModel):
@@ -96,52 +229,41 @@ class TokenResponse(BaseModel):
     username: str
     wallet_balance: Optional[float] = None
 
-class UserProfile(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    username: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    wallet_balance: float
-    created_at: str
+class CreateOrderRequest(BaseModel):
+    player_uid: str
+    package_id: str
 
-class Package(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    name: str
-    type: str  # "diamond", "membership", "evo_access"
-    amount: int  # diamonds or days
-    price: float
-    active: bool
-    sort_order: int
-    created_at: str
-    updated_at: str
+class CreateWalletLoadRequest(BaseModel):
+    amount_rupees: float  # Amount user wants to add
+
+class PaymentVerificationRequest(BaseModel):
+    order_id: str
+    sent_amount_rupees: float
+    last_3_digits: str
+    payment_method: str = "FonePay"
+    payment_screenshot: Optional[str] = None
+    remark: Optional[str] = None
+
+class UpdateOrderUIDRequest(BaseModel):
+    player_uid: str
+
+class SMSMessage(BaseModel):
+    raw_message: str
 
 class CreatePackageRequest(BaseModel):
     name: str
     type: str
     amount: int
-    price: float
+    price_rupees: float
     active: bool = True
 
 class UpdatePackageRequest(BaseModel):
     name: Optional[str] = None
     type: Optional[str] = None
     amount: Optional[int] = None
-    price: Optional[float] = None
+    price_rupees: Optional[float] = None
     active: Optional[bool] = None
     sort_order: Optional[int] = None
-
-class GarenaAccount(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    name: str
-    email: str
-    password: str  # encrypted
-    pin: str  # encrypted
-    active: bool
-    last_used: Optional[str] = None
-    created_at: str
 
 class CreateGarenaAccountRequest(BaseModel):
     name: str
@@ -162,167 +284,251 @@ class CreateUserRequest(BaseModel):
     phone: Optional[str] = None
     password: str
 
-class UpdateUserRequest(BaseModel):
-    blocked: Optional[bool] = None
-    password: Optional[str] = None
+class AdminUpdateOrderRequest(BaseModel):
+    player_uid: Optional[str] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
 
-class CreateOrderRequest(BaseModel):
-    player_uid: str
-    package_id: str
+# ===== HELPER FUNCTIONS =====
 
-class PaymentVerificationRequest(BaseModel):
-    order_id: str
-    sent_amount: float
-    last_3_digits: str
-    payment_method: str
-    payment_screenshot: Optional[str] = None
-    remark: Optional[str] = None
+async def credit_wallet(user_id: str, amount_paisa: int, transaction_type: str, 
+                        order_id: str = None, description: str = None):
+    """Safely credit wallet with proper transaction logging"""
+    if amount_paisa <= 0:
+        return 0
+    
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        logger.error(f"User {user_id} not found for wallet credit")
+        return 0
+    
+    old_balance = user.get("wallet_balance_paisa", 0)
+    new_balance = old_balance + amount_paisa
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"wallet_balance_paisa": new_balance}}
+    )
+    
+    # Log transaction
+    await db.wallet_transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "type": transaction_type,
+        "amount_paisa": amount_paisa,
+        "order_id": order_id,
+        "balance_before_paisa": old_balance,
+        "balance_after_paisa": new_balance,
+        "description": description or transaction_type,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    logger.info(f"Credited {amount_paisa} paisa to user {user_id}. New balance: {new_balance}")
+    return amount_paisa
 
-class Order(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    user_id: str
-    username: str
-    player_uid: str
-    server: Optional[str] = None
-    package_id: str
-    package_name: str
-    package_type: str
-    amount: int  # diamonds or days
-    locked_price: float  # Price at time of order
-    wallet_used: float
-    payment_amount: float
-    payment_last3digits: Optional[str] = None
-    payment_method: Optional[str] = None
-    payment_remark: Optional[str] = None
-    payment_screenshot: Optional[str] = None
-    payment_rrn: Optional[str] = None
-    raw_message: Optional[str] = None
-    status: str
-    automation_state: Optional[str] = None
-    retry_count: int
-    created_at: str
-    updated_at: str
-    completed_at: Optional[str] = None
+async def debit_wallet(user_id: str, amount_paisa: int, transaction_type: str,
+                       order_id: str = None, description: str = None):
+    """Safely debit wallet with proper transaction logging"""
+    if amount_paisa <= 0:
+        return 0
+    
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        return 0
+    
+    old_balance = user.get("wallet_balance_paisa", 0)
+    if old_balance < amount_paisa:
+        raise HTTPException(status_code=400, detail="Insufficient wallet balance")
+    
+    new_balance = old_balance - amount_paisa
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"wallet_balance_paisa": new_balance}}
+    )
+    
+    # Log transaction
+    await db.wallet_transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "type": transaction_type,
+        "amount_paisa": -amount_paisa,
+        "order_id": order_id,
+        "balance_before_paisa": old_balance,
+        "balance_after_paisa": new_balance,
+        "description": description or transaction_type,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return amount_paisa
 
-class SMSMessage(BaseModel):
-    raw_message: str
-    amount: Optional[float] = None
-    last3digits: Optional[str] = None
-    rrn: Optional[str] = None
-    method: Optional[str] = None
-    remark: Optional[str] = None
-
-class WalletTransaction(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    user_id: str
-    type: str
-    amount: float
-    order_id: Optional[str] = None
-    payment_id: Optional[str] = None
-    balance_before: float
-    balance_after: float
-    created_at: str
-
-class DashboardStats(BaseModel):
-    total_sales: float
-    total_orders: int
-    success_orders: int
-    failed_orders: int
-    suspicious_orders: int
-    duplicate_orders: int
-    pending_orders: int
-    total_wallet_balance: float
-
-# ===== Utility Functions =====
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-def create_access_token(data: dict, expires_delta: timedelta = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    try:
-        token = credentials.credentials
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get("sub")
-        user_type: str = payload.get("type")
-        if user_id is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        return {"user_id": user_id, "type": user_type}
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    user_data = await get_current_user(credentials)
-    if user_data["type"] != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return user_data
-
-def parse_sms_message(raw_message: str) -> dict:
-    """Parse SMS payment message to extract details"""
-    import re
-    result = {
-        "amount": None,
-        "last3digits": None,
-        "rrn": None,
-        "method": None,
-        "remark": None
+async def process_payment(order: dict, payment_amount_paisa: int, rrn: str = None, 
+                          raw_message: str = None, sms_fingerprint: str = None):
+    """Process payment with overpayment handling and safety checks.
+    Returns: (status, overpayment_paisa, message)
+    """
+    required_paisa = order.get("payment_required_paisa", 0)
+    overpayment_paisa = max(0, payment_amount_paisa - required_paisa)
+    
+    # Safety check 1: Suspicious if payment > required * MAX_RATIO
+    if payment_amount_paisa > required_paisa * MAX_OVERPAYMENT_RATIO:
+        await db.orders.update_one(
+            {"id": order["id"]},
+            {"$set": {
+                "status": "suspicious",
+                "payment_received_paisa": payment_amount_paisa,
+                "payment_rrn": rrn,
+                "raw_message": raw_message,
+                "sms_fingerprint": sms_fingerprint,
+                "suspicious_reason": f"Payment {paisa_to_rupees(payment_amount_paisa)} is more than {MAX_OVERPAYMENT_RATIO}x required {paisa_to_rupees(required_paisa)}",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        return ("suspicious", 0, "Payment flagged as suspicious due to large overpayment")
+    
+    # Safety check 2: Don't auto-credit if overpayment exceeds threshold
+    credit_to_wallet = overpayment_paisa
+    if overpayment_paisa > MAX_AUTO_CREDIT_AMOUNT_PAISA:
+        await db.orders.update_one(
+            {"id": order["id"]},
+            {"$set": {
+                "status": "suspicious",
+                "payment_received_paisa": payment_amount_paisa,
+                "payment_rrn": rrn,
+                "raw_message": raw_message,
+                "sms_fingerprint": sms_fingerprint,
+                "overpayment_paisa": overpayment_paisa,
+                "suspicious_reason": f"Overpayment {paisa_to_rupees(overpayment_paisa)} exceeds auto-credit limit",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        return ("suspicious", 0, "Overpayment too large for auto-credit, needs manual review")
+    
+    # Process payment normally
+    update_data = {
+        "status": "paid",
+        "payment_received_paisa": payment_amount_paisa,
+        "payment_rrn": rrn,
+        "raw_message": raw_message,
+        "sms_fingerprint": sms_fingerprint,
+        "overpayment_paisa": credit_to_wallet,
+        "updated_at": datetime.now(timezone.utc).isoformat()
     }
     
-    # Extract amount (Rs 125.00 or Rs 125)
-    amount_match = re.search(r'Rs\.?\s*([0-9,]+\.?[0-9]*)', raw_message, re.IGNORECASE)
-    if amount_match:
-        result["amount"] = float(amount_match.group(1).replace(',', ''))
+    await db.orders.update_one({"id": order["id"]}, {"$set": update_data})
     
-    # Extract last 3 digits - multiple patterns:
-    # Pattern 1: 900****910 (digits, asterisks, 3 digits)
-    # Pattern 2: 98XXXXX910 (digits, X's, 3 digits)
-    # Pattern 3: XXX****910 (X's, asterisks, 3 digits)
-    # Pattern 4: ***910 (asterisks, 3 digits at end)
-    phone_patterns = [
-        r'\d+[\*X]+(\d{3})\b',  # digits + asterisks/X + 3 digits
-        r'[X\*]+(\d{3})\b',     # just asterisks/X + 3 digits
-        r'from\s+\S*?(\d{3})\s+for',  # "from xxx910 for"
-    ]
-    for pattern in phone_patterns:
-        phone_match = re.search(pattern, raw_message, re.IGNORECASE)
-        if phone_match:
-            result["last3digits"] = phone_match.group(1)
-            break
+    # Credit overpayment to wallet
+    if credit_to_wallet > 0:
+        await credit_wallet(
+            order["user_id"],
+            credit_to_wallet,
+            "overpayment_credit",
+            order["id"],
+            f"Overpayment from order #{order['id'][:8].upper()}"
+        )
     
-    # Extract RRN
-    rrn_match = re.search(r'RRN\s*[:\-]?\s*([A-Za-z0-9]+)', raw_message, re.IGNORECASE)
-    if rrn_match:
-        result["rrn"] = rrn_match.group(1)
+    # For wallet_load orders, credit the intended amount to wallet
+    if order.get("order_type") == "wallet_load":
+        load_amount = order.get("load_amount_paisa", 0)
+        if load_amount > 0:
+            await credit_wallet(
+                order["user_id"],
+                load_amount,
+                "wallet_load",
+                order["id"],
+                f"Wallet load from order #{order['id'][:8].upper()}"
+            )
     
-    # Extract method (after last comma)
-    parts = raw_message.split(',')
-    if len(parts) >= 2:
-        last_part = parts[-1].strip()
-        if last_part and '/' in last_part:
-            method_parts = last_part.split('/')
-            if len(method_parts) >= 2:
-                result["method"] = method_parts[-1].strip()
-                result["remark"] = method_parts[0].strip()
-    
-    return result
+    return ("paid", credit_to_wallet, "Payment processed successfully")
 
-# ===== Authentication Endpoints =====
+async def add_to_queue(order_id: str):
+    """Add order to automation queue"""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        return
+    
+    # Only queue product_topup orders
+    if order.get("order_type") != "product_topup":
+        # For wallet_load, mark as success immediately
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "status": "success",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        return
+    
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "status": "queued",
+            "queued_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+
+async def try_match_sms_to_orders(sms_doc: dict):
+    """Try to match an SMS to pending orders"""
+    amount_paisa = sms_doc.get("amount_paisa")
+    last3digits = sms_doc.get("last3digits")
+    rrn = sms_doc.get("rrn")
+    fingerprint = sms_doc.get("fingerprint")
+    
+    if not amount_paisa or not last3digits:
+        return None
+    
+    # Check for duplicate RRN
+    if rrn:
+        existing = await db.orders.find_one({"payment_rrn": rrn})
+        if existing:
+            logger.warning(f"Duplicate RRN {rrn} detected")
+            return None
+    
+    # Check for duplicate fingerprint
+    if fingerprint:
+        existing = await db.orders.find_one({"sms_fingerprint": fingerprint})
+        if existing:
+            logger.warning(f"Duplicate SMS fingerprint detected")
+            return None
+    
+    # Find best matching order:
+    # - Status is pending
+    # - Last 3 digits match
+    # - Payment amount >= required
+    # - Prefer smallest overpayment
+    # - Prefer oldest order
+    pending_orders = await db.orders.find({
+        "status": {"$in": ["pending_payment", "manual_review"]},
+        "payment_last3digits": last3digits,
+        "payment_required_paisa": {"$lte": amount_paisa}
+    }, {"_id": 0}).sort("created_at", 1).to_list(20)
+    
+    if not pending_orders:
+        return None
+    
+    # Find order with smallest overpayment
+    best_order = None
+    best_overpayment = float('inf')
+    
+    for order in pending_orders:
+        required = order.get("payment_required_paisa", 0)
+        overpayment = amount_paisa - required
+        if overpayment < best_overpayment:
+            best_overpayment = overpayment
+            best_order = order
+    
+    return best_order
+
+# ===== AUTHENTICATION ENDPOINTS =====
+
 @api_router.post("/auth/signup", response_model=TokenResponse)
 async def signup(request: SignupRequest):
-    # Check if username exists
+    # Validate username
+    if len(request.username) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
+    
     existing = await db.users.find_one({"username": request.username})
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
@@ -344,7 +550,8 @@ async def signup(request: SignupRequest):
         "email": request.email,
         "phone": request.phone,
         "password_hash": hash_password(request.password),
-        "wallet_balance": 0.0,
+        "wallet_balance_paisa": 0,
+        "blocked": False,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
@@ -372,13 +579,17 @@ async def login(request: LoginRequest):
     if not user or not verify_password(request.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
+    if user.get("blocked"):
+        raise HTTPException(status_code=403, detail="Account is blocked")
+    
     token = create_access_token({"sub": user["id"], "type": "user", "username": user["username"]})
+    balance_paisa = user.get("wallet_balance_paisa", 0)
     
     return TokenResponse(
         token=token,
         user_type="user",
         username=user["username"],
-        wallet_balance=user["wallet_balance"]
+        wallet_balance=paisa_to_rupees(balance_paisa)
     )
 
 @api_router.post("/auth/reset-password")
@@ -401,7 +612,6 @@ async def reset_password(request: ResetPasswordRequest):
     
     return {"message": "Password reset successful"}
 
-# ===== Admin Auth Endpoints =====
 @api_router.post("/admin/login", response_model=TokenResponse)
 async def admin_login(request: LoginRequest):
     admin = await db.admins.find_one({"username": request.identifier}, {"_id": 0})
@@ -411,56 +621,57 @@ async def admin_login(request: LoginRequest):
     
     token = create_access_token({"sub": admin["id"], "type": "admin", "username": admin["username"]})
     
-    return TokenResponse(
-        token=token,
-        user_type="admin",
-        username=admin["username"]
-    )
+    return TokenResponse(token=token, user_type="admin", username=admin["username"])
 
 @api_router.post("/admin/reset-password")
 async def admin_reset_password(request: ResetPasswordRequest, user_data: dict = Depends(get_current_admin)):
-    admin = await db.admins.find_one({"id": user_data["user_id"]})
-    
-    if not admin:
-        raise HTTPException(status_code=404, detail="Admin not found")
-    
     await db.admins.update_one(
-        {"id": admin["id"]},
+        {"id": user_data["user_id"]},
         {"$set": {"password_hash": hash_password(request.new_password)}}
     )
-    
     return {"message": "Admin password reset successful"}
 
-# ===== User Endpoints =====
-@api_router.get("/user/profile", response_model=UserProfile)
+# ===== USER ENDPOINTS =====
+
+@api_router.get("/user/profile")
 async def get_profile(user_data: dict = Depends(get_current_user)):
     if user_data["type"] != "user":
         raise HTTPException(status_code=403, detail="User access required")
     
-    user = await db.users.find_one({"id": user_data["user_id"]}, {"_id": 0})
+    user = await db.users.find_one({"id": user_data["user_id"]}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    return UserProfile(**user)
+    # Convert paisa to rupees for display
+    user["wallet_balance"] = paisa_to_rupees(user.get("wallet_balance_paisa", 0))
+    
+    return user
 
 @api_router.get("/user/wallet")
 async def get_wallet(user_data: dict = Depends(get_current_user)):
     if user_data["type"] != "user":
         raise HTTPException(status_code=403, detail="User access required")
     
-    user = await db.users.find_one({"id": user_data["user_id"]}, {"_id": 0, "wallet_balance": 1})
+    user = await db.users.find_one({"id": user_data["user_id"]}, {"_id": 0, "wallet_balance_paisa": 1})
     transactions = await db.wallet_transactions.find(
         {"user_id": user_data["user_id"]}, 
         {"_id": 0}
     ).sort("created_at", -1).limit(50).to_list(50)
     
+    # Convert for display
+    for t in transactions:
+        t["amount"] = paisa_to_rupees(t.get("amount_paisa", 0))
+        t["balance_before"] = paisa_to_rupees(t.get("balance_before_paisa", 0))
+        t["balance_after"] = paisa_to_rupees(t.get("balance_after_paisa", 0))
+    
     return {
-        "balance": user["wallet_balance"],
+        "balance": paisa_to_rupees(user.get("wallet_balance_paisa", 0)),
         "transactions": transactions
     }
 
 @api_router.get("/user/orders")
 async def get_user_orders(user_data: dict = Depends(get_current_user)):
+    """Get ALL user orders (both wallet_load and product_topup)"""
     if user_data["type"] != "user":
         raise HTTPException(status_code=403, detail="User access required")
     
@@ -469,51 +680,74 @@ async def get_user_orders(user_data: dict = Depends(get_current_user)):
         {"_id": 0}
     ).sort("created_at", -1).limit(100).to_list(100)
     
+    # Convert paisa to rupees for display
+    for order in orders:
+        order["locked_price"] = paisa_to_rupees(order.get("locked_price_paisa", 0))
+        order["payment_amount"] = paisa_to_rupees(order.get("payment_amount_paisa", 0))
+        order["payment_required"] = paisa_to_rupees(order.get("payment_required_paisa", 0))
+        order["wallet_used"] = paisa_to_rupees(order.get("wallet_used_paisa", 0))
+        order["overpayment_credited"] = paisa_to_rupees(order.get("overpayment_paisa", 0))
+        order["payment_received"] = paisa_to_rupees(order.get("payment_received_paisa", 0))
+        if order.get("order_type") == "wallet_load":
+            order["load_amount"] = paisa_to_rupees(order.get("load_amount_paisa", 0))
+    
     return orders
 
-# ===== Package Endpoints =====
-@api_router.get("/packages/list", response_model=List[Package])
+# ===== PACKAGE ENDPOINTS =====
+
+@api_router.get("/packages/list")
 async def list_packages():
-    packages = await db.packages.find({"active": True}, {"_id": 0}).to_list(100)
+    packages = await db.packages.find({"active": True}, {"_id": 0}).sort("sort_order", 1).to_list(100)
+    for pkg in packages:
+        pkg["price"] = paisa_to_rupees(pkg.get("price_paisa", 0))
     return packages
 
-# ===== Order Endpoints =====
+# ===== ORDER ENDPOINTS =====
+
 @api_router.post("/orders/create")
-async def create_order(request: CreateOrderRequest, user_data: dict = Depends(get_current_user)):
+async def create_product_order(request: CreateOrderRequest, user_data: dict = Depends(get_current_user)):
+    """Create a product top-up order"""
     if user_data["type"] != "user":
         raise HTTPException(status_code=403, detail="User access required")
     
-    # Check if user is blocked
+    # Validate UID (min 8 digits)
+    if not request.player_uid.isdigit() or len(request.player_uid) < 8:
+        raise HTTPException(status_code=400, detail="Player UID must be at least 8 digits")
+    
     user = await db.users.find_one({"id": user_data["user_id"]}, {"_id": 0})
-    if user.get("blocked", False):
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("blocked"):
         raise HTTPException(status_code=403, detail="Account is blocked")
     
-    package = await db.packages.find_one({"id": request.package_id}, {"_id": 0})
-    if not package or not package["active"]:
-        raise HTTPException(status_code=404, detail="Package not found")
+    package = await db.packages.find_one({"id": request.package_id, "active": True}, {"_id": 0})
+    if not package:
+        raise HTTPException(status_code=404, detail="Package not found or inactive")
     
     order_id = str(uuid.uuid4())
-    wallet_used = 0.0
-    locked_price = package["price"]  # Lock price at order time
-    exact_payment = locked_price
+    locked_price_paisa = package.get("price_paisa", 0)
+    wallet_balance_paisa = user.get("wallet_balance_paisa", 0)
+    
+    # Calculate wallet usage and payment required
+    wallet_used_paisa = 0
+    payment_required_paisa = locked_price_paisa
     status = "pending_payment"
     
-    # Check if wallet can cover partially or fully
-    if user["wallet_balance"] > 0:
-        if user["wallet_balance"] >= locked_price:
-            wallet_used = locked_price
-            exact_payment = 0.0
-            status = "wallet_fully_paid"
+    if wallet_balance_paisa > 0:
+        if wallet_balance_paisa >= locked_price_paisa:
+            wallet_used_paisa = locked_price_paisa
+            payment_required_paisa = 0
+            status = "paid"  # Fully paid by wallet
         else:
-            wallet_used = user["wallet_balance"]
-            exact_payment = locked_price - wallet_used
-            status = "wallet_partial_paid"
+            wallet_used_paisa = wallet_balance_paisa
+            payment_required_paisa = locked_price_paisa - wallet_balance_paisa
     
-    # Round up payment amount to clean number (never ask for odd decimals)
-    payment_amount = round_up_payment(exact_payment) if exact_payment > 0 else 0.0
+    # Round up payment amount
+    payment_amount_paisa = round_up_payment_paisa(payment_required_paisa) if payment_required_paisa > 0 else 0
     
     order_doc = {
         "id": order_id,
+        "order_type": "product_topup",
         "user_id": user_data["user_id"],
         "username": user["username"],
         "player_uid": request.player_uid,
@@ -522,20 +756,23 @@ async def create_order(request: CreateOrderRequest, user_data: dict = Depends(ge
         "package_name": package["name"],
         "package_type": package["type"],
         "amount": package["amount"],
-        "locked_price": locked_price,  # Price locked at purchase time
-        "wallet_used": wallet_used,
-        "exact_payment_required": exact_payment,  # Exact amount needed
-        "payment_amount": payment_amount,  # Rounded up amount to pay
+        "locked_price_paisa": locked_price_paisa,
+        "wallet_used_paisa": wallet_used_paisa,
+        "payment_required_paisa": payment_required_paisa,
+        "payment_amount_paisa": payment_amount_paisa,
         "payment_last3digits": None,
         "payment_method": None,
         "payment_remark": None,
         "payment_screenshot": None,
         "payment_rrn": None,
+        "payment_received_paisa": 0,
         "raw_message": None,
-        "overpayment_credited": 0.0,  # Track overpayment credited to wallet
+        "sms_fingerprint": None,
+        "overpayment_paisa": 0,
         "status": status,
         "automation_state": None,
         "retry_count": 0,
+        "notes": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "completed_at": None
@@ -543,105 +780,142 @@ async def create_order(request: CreateOrderRequest, user_data: dict = Depends(ge
     
     await db.orders.insert_one(order_doc)
     
-    # Deduct wallet if used
-    if wallet_used > 0:
-        new_balance = user["wallet_balance"] - wallet_used
-        await db.users.update_one(
-            {"id": user_data["user_id"]},
-            {"$set": {"wallet_balance": new_balance}}
+    # Debit wallet if used
+    if wallet_used_paisa > 0:
+        await debit_wallet(
+            user_data["user_id"],
+            wallet_used_paisa,
+            "order_payment",
+            order_id,
+            f"Payment for order #{order_id[:8].upper()}"
         )
-        
-        # Create wallet transaction
-        transaction_doc = {
-            "id": str(uuid.uuid4()),
-            "user_id": user_data["user_id"],
-            "type": "order_payment",
-            "amount": -wallet_used,
-            "order_id": order_id,
-            "payment_id": None,
-            "balance_before": user["wallet_balance"],
-            "balance_after": new_balance,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.wallet_transactions.insert_one(transaction_doc)
     
-    return {"order_id": order_id, "status": status, "payment_amount": payment_amount}
+    # If fully paid by wallet, add to queue
+    if status == "paid":
+        await add_to_queue(order_id)
+    
+    return {
+        "order_id": order_id,
+        "status": status,
+        "payment_amount": paisa_to_rupees(payment_amount_paisa),
+        "payment_required": paisa_to_rupees(payment_required_paisa),
+        "wallet_used": paisa_to_rupees(wallet_used_paisa)
+    }
 
-@api_router.get("/orders/{order_id}", response_model=Order)
+@api_router.post("/orders/wallet-load")
+async def create_wallet_load_order(request: CreateWalletLoadRequest, user_data: dict = Depends(get_current_user)):
+    """Create a wallet load order"""
+    if user_data["type"] != "user":
+        raise HTTPException(status_code=403, detail="User access required")
+    
+    if request.amount_rupees < 10:
+        raise HTTPException(status_code=400, detail="Minimum wallet load is ₹10")
+    
+    user = await db.users.find_one({"id": user_data["user_id"]}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("blocked"):
+        raise HTTPException(status_code=403, detail="Account is blocked")
+    
+    order_id = str(uuid.uuid4())
+    load_amount_paisa = rupees_to_paisa(request.amount_rupees)
+    payment_amount_paisa = round_up_payment_paisa(load_amount_paisa)
+    
+    order_doc = {
+        "id": order_id,
+        "order_type": "wallet_load",
+        "user_id": user_data["user_id"],
+        "username": user["username"],
+        "player_uid": None,
+        "server": None,
+        "package_id": None,
+        "package_name": "Wallet Load",
+        "package_type": "wallet_load",
+        "amount": None,
+        "load_amount_paisa": load_amount_paisa,
+        "locked_price_paisa": load_amount_paisa,
+        "wallet_used_paisa": 0,
+        "payment_required_paisa": load_amount_paisa,
+        "payment_amount_paisa": payment_amount_paisa,
+        "payment_last3digits": None,
+        "payment_method": None,
+        "payment_remark": None,
+        "payment_screenshot": None,
+        "payment_rrn": None,
+        "payment_received_paisa": 0,
+        "raw_message": None,
+        "sms_fingerprint": None,
+        "overpayment_paisa": 0,
+        "status": "pending_payment",
+        "automation_state": None,
+        "retry_count": 0,
+        "notes": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None
+    }
+    
+    await db.orders.insert_one(order_doc)
+    
+    return {
+        "order_id": order_id,
+        "status": "pending_payment",
+        "load_amount": request.amount_rupees,
+        "payment_amount": paisa_to_rupees(payment_amount_paisa)
+    }
+
+@api_router.get("/orders/{order_id}")
 async def get_order(order_id: str, user_data: dict = Depends(get_current_user)):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
-    # Users can only see their own orders
     if user_data["type"] == "user" and order["user_id"] != user_data["user_id"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    return Order(**order)
+    # Convert paisa to rupees
+    order["locked_price"] = paisa_to_rupees(order.get("locked_price_paisa", 0))
+    order["payment_amount"] = paisa_to_rupees(order.get("payment_amount_paisa", 0))
+    order["payment_required"] = paisa_to_rupees(order.get("payment_required_paisa", 0))
+    order["wallet_used"] = paisa_to_rupees(order.get("wallet_used_paisa", 0))
+    order["overpayment_credited"] = paisa_to_rupees(order.get("overpayment_paisa", 0))
+    order["payment_received"] = paisa_to_rupees(order.get("payment_received_paisa", 0))
+    if order.get("order_type") == "wallet_load":
+        order["load_amount"] = paisa_to_rupees(order.get("load_amount_paisa", 0))
+    
+    return order
 
-@api_router.get("/orders/list/user")
-async def list_user_orders(user_data: dict = Depends(get_current_user)):
+@api_router.put("/orders/{order_id}/uid")
+async def update_order_uid(order_id: str, request: UpdateOrderUIDRequest, user_data: dict = Depends(get_current_user)):
+    """Allow user to update UID if status is invalid_uid or pending_payment"""
     if user_data["type"] != "user":
         raise HTTPException(status_code=403, detail="User access required")
     
-    orders = await db.orders.find(
-        {"user_id": user_data["user_id"]}, 
-        {"_id": 0}
-    ).sort("created_at", -1).to_list(100)
+    if not request.player_uid.isdigit() or len(request.player_uid) < 8:
+        raise HTTPException(status_code=400, detail="Player UID must be at least 8 digits")
     
-    return orders
-
-async def process_payment_with_overpayment(order: dict, payment_amount: float, rrn: str = None, raw_message: str = None):
-    """Process payment and handle overpayment by crediting to wallet.
-    Returns overpayment amount credited (0 if no overpayment).
-    """
-    exact_required = order.get("exact_payment_required", order.get("payment_amount", 0))
-    overpayment = max(0, payment_amount - exact_required)
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
     
-    # Update order status to paid
-    update_data = {
-        "status": "paid",
-        "payment_received": payment_amount,
-        "updated_at": datetime.now(timezone.utc).isoformat()
-    }
+    if order["user_id"] != user_data["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
-    if rrn:
-        update_data["payment_rrn"] = rrn
-    if raw_message:
-        update_data["raw_message"] = raw_message
+    if order["status"] not in ["invalid_uid", "pending_payment"]:
+        raise HTTPException(status_code=400, detail="Cannot update UID for this order status")
     
-    if overpayment > 0:
-        update_data["overpayment_credited"] = overpayment
-        
-        # Credit overpayment to user's wallet
-        user = await db.users.find_one({"id": order["user_id"]}, {"_id": 0})
-        if user:
-            new_balance = user.get("wallet_balance", 0) + overpayment
-            await db.users.update_one(
-                {"id": order["user_id"]},
-                {"$set": {"wallet_balance": new_balance}}
-            )
-            
-            # Create wallet transaction for overpayment credit
-            transaction_doc = {
-                "id": str(uuid.uuid4()),
-                "user_id": order["user_id"],
-                "type": "overpayment_credit",
-                "amount": overpayment,
-                "order_id": order["id"],
-                "payment_id": None,
-                "balance_before": user.get("wallet_balance", 0),
-                "balance_after": new_balance,
-                "description": f"Overpayment from order #{order['id'][:8].upper()}",
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            await db.wallet_transactions.insert_one(transaction_doc)
-            
-            logging.info(f"Credited ₹{overpayment} overpayment to user {order['user_id']} wallet")
+    new_status = "pending_payment" if order["status"] == "invalid_uid" else order["status"]
     
-    await db.orders.update_one({"id": order["id"]}, {"$set": update_data})
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "player_uid": request.player_uid,
+            "status": new_status,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
     
-    return overpayment
+    return {"message": "UID updated successfully", "new_status": new_status}
 
 @api_router.post("/orders/verify-payment")
 async def verify_payment(request: PaymentVerificationRequest, user_data: dict = Depends(get_current_user)):
@@ -655,7 +929,12 @@ async def verify_payment(request: PaymentVerificationRequest, user_data: dict = 
     if order["user_id"] != user_data["user_id"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
+    if order["status"] not in ["pending_payment", "manual_review"]:
+        raise HTTPException(status_code=400, detail=f"Cannot verify payment for order with status: {order['status']}")
+    
     # Update order with payment details
+    sent_amount_paisa = rupees_to_paisa(request.sent_amount_rupees)
+    
     await db.orders.update_one(
         {"id": request.order_id},
         {"$set": {
@@ -667,151 +946,383 @@ async def verify_payment(request: PaymentVerificationRequest, user_data: dict = 
         }}
     )
     
-    # Get exact amount required (before rounding)
-    exact_required = order.get("exact_payment_required", order.get("payment_amount", 0))
+    required_paisa = order.get("payment_required_paisa", 0)
     
-    # Try to match with SMS messages - allow overpayment (amount >= required)
+    # Try to match with SMS messages
     matching_sms = await db.sms_messages.find_one({
-        "amount": {"$gte": exact_required},  # Accept amount >= required
+        "amount_paisa": {"$gte": required_paisa},
         "last3digits": request.last_3_digits,
         "used": False
-    }, {"_id": 0})
+    }, {"_id": 0}, sort=[("parsed_at", -1)])
     
-    # If no exact+ match, try to find exact amount sent by user
+    # If no match by required amount, try exact sent amount
     if not matching_sms:
         matching_sms = await db.sms_messages.find_one({
-            "amount": request.sent_amount,
+            "amount_paisa": sent_amount_paisa,
             "last3digits": request.last_3_digits,
             "used": False
         }, {"_id": 0})
     
     if matching_sms:
-        # Check if RRN is already used
-        existing_order = await db.orders.find_one({"payment_rrn": matching_sms["rrn"]})
-        if existing_order and existing_order["id"] != request.order_id:
-            await db.orders.update_one(
-                {"id": request.order_id},
-                {"$set": {"status": "duplicate_payment", "updated_at": datetime.now(timezone.utc).isoformat()}}
-            )
-            return {"message": "This payment has already been used for another order", "status": "duplicate_payment"}
+        # Check for duplicate RRN
+        if matching_sms.get("rrn"):
+            existing = await db.orders.find_one({"payment_rrn": matching_sms["rrn"], "id": {"$ne": request.order_id}})
+            if existing:
+                await db.orders.update_one(
+                    {"id": request.order_id},
+                    {"$set": {"status": "duplicate_payment", "updated_at": datetime.now(timezone.utc).isoformat()}}
+                )
+                return {"message": "This payment was already used for another order", "status": "duplicate_payment"}
+        
+        # Check for duplicate fingerprint
+        if matching_sms.get("fingerprint"):
+            existing = await db.orders.find_one({"sms_fingerprint": matching_sms["fingerprint"], "id": {"$ne": request.order_id}})
+            if existing:
+                await db.orders.update_one(
+                    {"id": request.order_id},
+                    {"$set": {"status": "duplicate_payment", "updated_at": datetime.now(timezone.utc).isoformat()}}
+                )
+                return {"message": "This payment was already used for another order", "status": "duplicate_payment"}
         
         # Mark SMS as used
         await db.sms_messages.update_one(
             {"id": matching_sms["id"]},
-            {"$set": {"used": True, "matched_order_id": request.order_id}}
+            {"$set": {"used": True, "matched_order_id": request.order_id, "matched_at": datetime.now(timezone.utc).isoformat()}}
         )
         
-        # Process payment with overpayment handling
-        overpayment = await process_payment_with_overpayment(
-            order, 
-            matching_sms["amount"], 
-            matching_sms["rrn"], 
-            matching_sms["raw_message"]
+        # Process payment
+        status, overpayment, message = await process_payment(
+            order,
+            matching_sms["amount_paisa"],
+            matching_sms.get("rrn"),
+            matching_sms.get("raw_message"),
+            matching_sms.get("fingerprint")
         )
         
-        # Add to automation queue
-        await add_to_queue(request.order_id)
+        if status == "paid":
+            await add_to_queue(request.order_id)
         
+        overpayment_rupees = paisa_to_rupees(overpayment)
         if overpayment > 0:
             return {
-                "message": f"Payment verified! ₹{overpayment:.2f} extra was credited to your wallet. Your order is being processed.",
-                "status": "paid",
-                "overpayment_credited": overpayment
+                "message": f"Payment verified! ₹{overpayment_rupees:.2f} extra was credited to your wallet.",
+                "status": status,
+                "overpayment_credited": overpayment_rupees
             }
-        return {"message": "Payment verified successfully! Your order is being processed.", "status": "paid"}
+        return {"message": "Payment verified! Your order is being processed.", "status": status}
     else:
-        # Payment not found - mark as pending manual review
         await db.orders.update_one(
             {"id": request.order_id},
             {"$set": {"status": "manual_review", "updated_at": datetime.now(timezone.utc).isoformat()}}
         )
         return {"message": "We're verifying your payment. This usually takes a few minutes.", "status": "manual_review"}
 
-# ===== SMS Webhook Endpoint =====
+# ===== SMS ENDPOINTS =====
+
 @api_router.post("/sms/receive")
 async def receive_sms(message: SMSMessage):
-    """Receive SMS messages from phone/emulator app"""
+    """Receive SMS from phone app"""
     parsed = parse_sms_message(message.raw_message)
+    fingerprint = generate_sms_fingerprint(message.raw_message)
+    
+    # Check for duplicate fingerprint
+    existing = await db.sms_messages.find_one({"fingerprint": fingerprint})
+    if existing:
+        return {"message": "Duplicate SMS ignored", "duplicate": True}
     
     sms_doc = {
         "id": str(uuid.uuid4()),
         "raw_message": message.raw_message,
-        "amount": parsed["amount"],
+        "fingerprint": fingerprint,
+        "amount_paisa": parsed["amount_paisa"],
         "last3digits": parsed["last3digits"],
         "rrn": parsed["rrn"],
         "method": parsed["method"],
         "remark": parsed["remark"],
         "parsed_at": datetime.now(timezone.utc).isoformat(),
         "used": False,
-        "matched_order_id": None
+        "matched_order_id": None,
+        "suspicious": False,
+        "suspicious_at": None
     }
     
     await db.sms_messages.insert_one(sms_doc)
     
-    # Try to match with pending orders - support overpayment
-    if parsed["amount"] and parsed["last3digits"]:
-        # Find orders where payment amount is <= received amount (allows overpayment)
-        pending_orders = await db.orders.find({
-            "status": {"$in": ["pending_payment", "wallet_partial_paid", "manual_review"]},
-            "exact_payment_required": {"$lte": parsed["amount"]},  # Allow overpayment
-            "payment_last3digits": parsed["last3digits"]
-        }, {"_id": 0}).to_list(10)
-        
-        # If no match with exact_payment_required, try payment_amount for backward compat
-        if not pending_orders:
-            pending_orders = await db.orders.find({
-                "status": {"$in": ["pending_payment", "wallet_partial_paid", "manual_review"]},
-                "payment_amount": {"$lte": parsed["amount"]},
-                "payment_last3digits": parsed["last3digits"]
-            }, {"_id": 0}).to_list(10)
-        
-        for order in pending_orders:
-            # Check if RRN already used
-            if parsed["rrn"]:
-                existing = await db.orders.find_one({"payment_rrn": parsed["rrn"]})
-                if existing:
-                    await db.orders.update_one(
-                        {"id": order["id"]},
-                        {"$set": {"status": "duplicate_payment", "updated_at": datetime.now(timezone.utc).isoformat()}}
-                    )
-                    continue
-            
-            # Process payment with overpayment handling
-            overpayment = await process_payment_with_overpayment(
-                order, 
-                parsed["amount"], 
-                parsed["rrn"], 
-                message.raw_message
-            )
-            
-            await db.sms_messages.update_one(
-                {"id": sms_doc["id"]},
-                {"$set": {"used": True, "matched_order_id": order["id"]}}
-            )
-            
-            await add_to_queue(order["id"])
-            
-            logging.info(f"Auto-matched SMS to order {order['id']}. Overpayment: ₹{overpayment}")
-            break
+    # Try to auto-match
+    best_order = await try_match_sms_to_orders(sms_doc)
     
-    return {"message": "SMS received and processed"}
+    if best_order:
+        # Check for duplicate RRN
+        if parsed["rrn"]:
+            existing = await db.orders.find_one({"payment_rrn": parsed["rrn"]})
+            if existing:
+                logger.warning(f"Duplicate RRN {parsed['rrn']}")
+                return {"message": "SMS received, RRN already used", "matched": False}
+        
+        # Process payment
+        status, overpayment, msg = await process_payment(
+            best_order,
+            parsed["amount_paisa"],
+            parsed["rrn"],
+            message.raw_message,
+            fingerprint
+        )
+        
+        await db.sms_messages.update_one(
+            {"id": sms_doc["id"]},
+            {"$set": {"used": True, "matched_order_id": best_order["id"], "matched_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        
+        if status == "paid":
+            await add_to_queue(best_order["id"])
+        
+        logger.info(f"Auto-matched SMS to order {best_order['id']}. Overpayment: {overpayment}")
+        return {"message": "SMS matched to order", "matched": True, "order_id": best_order["id"]}
+    
+    return {"message": "SMS saved, no matching order found", "matched": False}
 
-# ===== Admin SMS Management =====
+# ===== ADMIN ENDPOINTS =====
+
+@api_router.get("/admin/dashboard")
+async def admin_dashboard(user_data: dict = Depends(get_current_admin)):
+    """Admin dashboard with analytics"""
+    # Get order stats
+    pipeline = [
+        {"$group": {
+            "_id": "$status",
+            "count": {"$sum": 1},
+            "total_paisa": {"$sum": "$locked_price_paisa"}
+        }}
+    ]
+    status_stats = await db.orders.aggregate(pipeline).to_list(100)
+    
+    # Get sales by product type
+    product_pipeline = [
+        {"$match": {"status": "success"}},
+        {"$group": {
+            "_id": "$package_type",
+            "count": {"$sum": 1},
+            "total_paisa": {"$sum": "$locked_price_paisa"}
+        }}
+    ]
+    product_stats = await db.orders.aggregate(product_pipeline).to_list(100)
+    
+    # Get total wallet balance
+    wallet_pipeline = [
+        {"$group": {"_id": None, "total": {"$sum": "$wallet_balance_paisa"}}}
+    ]
+    wallet_result = await db.users.aggregate(wallet_pipeline).to_list(1)
+    total_wallet_paisa = wallet_result[0]["total"] if wallet_result else 0
+    
+    # Get unmatched SMS count
+    unmatched_sms = await db.sms_messages.count_documents({"used": False})
+    
+    # Get orders needing review
+    review_count = await db.orders.count_documents({
+        "status": {"$in": ["manual_review", "suspicious", "failed", "invalid_uid"]}
+    })
+    
+    # Calculate totals
+    total_orders = sum(s["count"] for s in status_stats)
+    success_orders = next((s["count"] for s in status_stats if s["_id"] == "success"), 0)
+    success_sales_paisa = next((s["total_paisa"] for s in status_stats if s["_id"] == "success"), 0)
+    failed_orders = next((s["count"] for s in status_stats if s["_id"] == "failed"), 0)
+    suspicious_orders = next((s["count"] for s in status_stats if s["_id"] == "suspicious"), 0)
+    pending_orders = next((s["count"] for s in status_stats if s["_id"] == "pending_payment"), 0)
+    
+    return {
+        "total_orders": total_orders,
+        "success_orders": success_orders,
+        "total_sales": paisa_to_rupees(success_sales_paisa),
+        "failed_orders": failed_orders,
+        "suspicious_orders": suspicious_orders,
+        "pending_orders": pending_orders,
+        "total_wallet_balance": paisa_to_rupees(total_wallet_paisa),
+        "unmatched_sms": unmatched_sms,
+        "review_queue_count": review_count,
+        "status_breakdown": {s["_id"]: s["count"] for s in status_stats},
+        "product_stats": [{"type": p["_id"], "count": p["count"], "total": paisa_to_rupees(p["total_paisa"])} for p in product_stats]
+    }
+
+@api_router.get("/admin/orders")
+async def admin_list_orders(
+    status: Optional[str] = None,
+    order_type: Optional[str] = None,
+    user_data: dict = Depends(get_current_admin)
+):
+    """List all orders with optional filters"""
+    query = {}
+    if status:
+        query["status"] = status
+    if order_type:
+        query["order_type"] = order_type
+    
+    orders = await db.orders.find(query, {"_id": 0}).sort("created_at", -1).limit(500).to_list(500)
+    
+    for order in orders:
+        order["locked_price"] = paisa_to_rupees(order.get("locked_price_paisa", 0))
+        order["payment_amount"] = paisa_to_rupees(order.get("payment_amount_paisa", 0))
+        order["payment_required"] = paisa_to_rupees(order.get("payment_required_paisa", 0))
+        order["wallet_used"] = paisa_to_rupees(order.get("wallet_used_paisa", 0))
+        order["overpayment_credited"] = paisa_to_rupees(order.get("overpayment_paisa", 0))
+        order["payment_received"] = paisa_to_rupees(order.get("payment_received_paisa", 0))
+    
+    return orders
+
+@api_router.get("/admin/orders/{order_id}")
+async def admin_get_order(order_id: str, user_data: dict = Depends(get_current_admin)):
+    """Get single order details for admin"""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    order["locked_price"] = paisa_to_rupees(order.get("locked_price_paisa", 0))
+    order["payment_amount"] = paisa_to_rupees(order.get("payment_amount_paisa", 0))
+    order["payment_required"] = paisa_to_rupees(order.get("payment_required_paisa", 0))
+    order["wallet_used"] = paisa_to_rupees(order.get("wallet_used_paisa", 0))
+    order["overpayment_credited"] = paisa_to_rupees(order.get("overpayment_paisa", 0))
+    order["payment_received"] = paisa_to_rupees(order.get("payment_received_paisa", 0))
+    
+    return order
+
+@api_router.put("/admin/orders/{order_id}")
+async def admin_update_order(order_id: str, request: AdminUpdateOrderRequest, user_data: dict = Depends(get_current_admin)):
+    """Admin update order"""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    
+    if request.player_uid:
+        update_data["player_uid"] = request.player_uid
+    if request.status:
+        if request.status not in ORDER_STATUSES:
+            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {ORDER_STATUSES}")
+        update_data["status"] = request.status
+        if request.status == "success":
+            update_data["completed_at"] = datetime.now(timezone.utc).isoformat()
+    if request.notes is not None:
+        update_data["notes"] = request.notes
+    
+    await db.orders.update_one({"id": order_id}, {"$set": update_data})
+    
+    # Log action
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "update_order",
+        "target_id": order_id,
+        "details": f"Updated order: {update_data}",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "Order updated"}
+
+@api_router.post("/admin/orders/{order_id}/mark-success")
+async def admin_mark_order_success(order_id: str, user_data: dict = Depends(get_current_admin)):
+    """Admin manually marks order as successful"""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "status": "success",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "mark_success",
+        "target_id": order_id,
+        "details": "Manually marked order as success",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "Order marked as successful"}
+
+@api_router.post("/admin/orders/{order_id}/retry")
+async def admin_retry_order(order_id: str, user_data: dict = Depends(get_current_admin)):
+    """Admin retries failed order"""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    if order.get("order_type") != "product_topup":
+        raise HTTPException(status_code=400, detail="Can only retry product orders")
+    
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "status": "queued",
+            "automation_state": None,
+            "retry_count": order.get("retry_count", 0) + 1,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    await db.admin_actions.insert_one({
+        "id": str(uuid.uuid4()),
+        "admin_id": user_data["user_id"],
+        "action_type": "retry_order",
+        "target_id": order_id,
+        "details": f"Retry attempt #{order.get('retry_count', 0) + 1}",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return {"message": "Order queued for retry"}
+
+@api_router.get("/admin/review-queue")
+async def admin_review_queue(user_data: dict = Depends(get_current_admin)):
+    """Get orders needing review"""
+    orders = await db.orders.find(
+        {"status": {"$in": ["manual_review", "suspicious", "failed", "invalid_uid", "duplicate_payment"]}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    for order in orders:
+        order["locked_price"] = paisa_to_rupees(order.get("locked_price_paisa", 0))
+        order["payment_amount"] = paisa_to_rupees(order.get("payment_amount_paisa", 0))
+        order["payment_received"] = paisa_to_rupees(order.get("payment_received_paisa", 0))
+    
+    # Get unmatched SMS
+    unmatched_sms = await db.sms_messages.find({"used": False}, {"_id": 0}).sort("parsed_at", -1).to_list(50)
+    for sms in unmatched_sms:
+        sms["amount"] = paisa_to_rupees(sms.get("amount_paisa", 0))
+    
+    return {
+        "orders": orders,
+        "unmatched_sms": unmatched_sms
+    }
+
 @api_router.get("/admin/sms")
 async def admin_list_sms(user_data: dict = Depends(get_current_admin)):
-    """List all SMS messages for admin review"""
     messages = await db.sms_messages.find({}, {"_id": 0}).sort("parsed_at", -1).limit(100).to_list(100)
+    for m in messages:
+        m["amount"] = paisa_to_rupees(m.get("amount_paisa", 0))
     return messages
 
 @api_router.post("/admin/sms/input")
 async def admin_input_sms(message: SMSMessage, user_data: dict = Depends(get_current_admin)):
-    """Admin manually inputs SMS message for payment verification"""
+    """Admin manually inputs SMS"""
     parsed = parse_sms_message(message.raw_message)
+    fingerprint = generate_sms_fingerprint(message.raw_message)
+    
+    # Check duplicate
+    existing = await db.sms_messages.find_one({"fingerprint": fingerprint})
+    if existing:
+        return {"message": "Duplicate SMS", "duplicate": True, "parsed": parsed}
     
     sms_doc = {
         "id": str(uuid.uuid4()),
         "raw_message": message.raw_message,
-        "amount": parsed["amount"],
+        "fingerprint": fingerprint,
+        "amount_paisa": parsed["amount_paisa"],
         "last3digits": parsed["last3digits"],
         "rrn": parsed["rrn"],
         "method": parsed["method"],
@@ -824,94 +1335,79 @@ async def admin_input_sms(message: SMSMessage, user_data: dict = Depends(get_cur
     
     await db.sms_messages.insert_one(sms_doc)
     
-    matched_order = None
-    overpayment_credited = 0
+    # Try to auto-match
+    best_order = await try_match_sms_to_orders(sms_doc)
     
-    # Try to match with pending orders - support overpayment
-    if parsed["amount"] and parsed["last3digits"]:
-        # Check for duplicate RRN
+    if best_order:
         if parsed["rrn"]:
             existing = await db.orders.find_one({"payment_rrn": parsed["rrn"]})
             if existing:
                 return {
                     "message": f"RRN already used for order #{existing['id'][:8].upper()}",
-                    "parsed": parsed,
+                    "parsed": {"amount": paisa_to_rupees(parsed["amount_paisa"]), **{k:v for k,v in parsed.items() if k != "amount_paisa"}},
                     "matched": False,
                     "duplicate_rrn": True
                 }
         
-        # Find orders where payment amount is <= received amount (allows overpayment)
-        pending_orders = await db.orders.find({
-            "status": {"$in": ["pending_payment", "wallet_partial_paid", "manual_review"]},
-            "payment_last3digits": parsed["last3digits"]
-        }, {"_id": 0}).sort("created_at", 1).to_list(10)
+        status, overpayment, msg = await process_payment(
+            best_order,
+            parsed["amount_paisa"],
+            parsed["rrn"],
+            message.raw_message,
+            fingerprint
+        )
         
-        for order in pending_orders:
-            exact_required = order.get("exact_payment_required", order.get("payment_amount", 0))
-            if parsed["amount"] >= exact_required:
-                # Process payment with overpayment handling
-                overpayment_credited = await process_payment_with_overpayment(
-                    order, 
-                    parsed["amount"], 
-                    parsed["rrn"], 
-                    message.raw_message
-                )
-                
-                await db.sms_messages.update_one(
-                    {"id": sms_doc["id"]},
-                    {"$set": {"used": True, "matched_order_id": order["id"]}}
-                )
-                
-                await add_to_queue(order["id"])
-                matched_order = order
-                
-                # Log admin action
-                await db.admin_actions.insert_one({
-                    "id": str(uuid.uuid4()),
-                    "admin_id": user_data["user_id"],
-                    "action_type": "input_sms",
-                    "target_id": order["id"],
-                    "details": f"Manually input SMS, matched to order #{order['id'][:8].upper()}, Amount: ₹{parsed['amount']}, Overpayment: ₹{overpayment_credited}",
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                })
-                break
-    
-    if matched_order:
+        await db.sms_messages.update_one(
+            {"id": sms_doc["id"]},
+            {"$set": {"used": True, "matched_order_id": best_order["id"]}}
+        )
+        
+        if status == "paid":
+            await add_to_queue(best_order["id"])
+        
+        await db.admin_actions.insert_one({
+            "id": str(uuid.uuid4()),
+            "admin_id": user_data["user_id"],
+            "action_type": "input_sms",
+            "target_id": best_order["id"],
+            "details": f"Matched to order #{best_order['id'][:8].upper()}, Overpayment: {paisa_to_rupees(overpayment)}",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        
         return {
-            "message": f"SMS matched to order #{matched_order['id'][:8].upper()}! Order is being processed.",
-            "parsed": parsed,
+            "message": f"SMS matched to order #{best_order['id'][:8].upper()}!",
+            "parsed": {"amount": paisa_to_rupees(parsed["amount_paisa"]), **{k:v for k,v in parsed.items() if k != "amount_paisa"}},
             "matched": True,
-            "order_id": matched_order["id"],
-            "overpayment_credited": overpayment_credited
+            "order_id": best_order["id"],
+            "overpayment_credited": paisa_to_rupees(overpayment)
         }
-    else:
-        return {
-            "message": "SMS saved but no matching order found. It will auto-match when an order with matching details is submitted.",
-            "parsed": parsed,
-            "matched": False,
-            "sms_id": sms_doc["id"]
-        }
+    
+    return {
+        "message": "SMS saved, no matching order found",
+        "parsed": {"amount": paisa_to_rupees(parsed["amount_paisa"]) if parsed["amount_paisa"] else None, **{k:v for k,v in parsed.items() if k != "amount_paisa"}},
+        "matched": False,
+        "sms_id": sms_doc["id"]
+    }
 
 @api_router.post("/admin/sms/match/{sms_id}")
-async def admin_manual_match_sms(sms_id: str, order_id: str, user_data: dict = Depends(get_current_admin)):
-    """Admin manually matches an SMS to a specific order"""
+async def admin_manual_match(sms_id: str, order_id: str, user_data: dict = Depends(get_current_admin)):
+    """Admin manually matches SMS to order"""
     sms = await db.sms_messages.find_one({"id": sms_id}, {"_id": 0})
     if not sms:
         raise HTTPException(status_code=404, detail="SMS not found")
-    
     if sms.get("used"):
-        raise HTTPException(status_code=400, detail="SMS already used for another order")
+        raise HTTPException(status_code=400, detail="SMS already used")
     
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
-    # Process payment with overpayment handling
-    overpayment = await process_payment_with_overpayment(
-        order, 
-        sms["amount"], 
-        sms.get("rrn"), 
-        sms["raw_message"]
+    status, overpayment, msg = await process_payment(
+        order,
+        sms["amount_paisa"],
+        sms.get("rrn"),
+        sms["raw_message"],
+        sms.get("fingerprint")
     )
     
     await db.sms_messages.update_one(
@@ -919,117 +1415,102 @@ async def admin_manual_match_sms(sms_id: str, order_id: str, user_data: dict = D
         {"$set": {"used": True, "matched_order_id": order_id}}
     )
     
-    await add_to_queue(order_id)
+    if status == "paid":
+        await add_to_queue(order_id)
     
-    # Log admin action
     await db.admin_actions.insert_one({
         "id": str(uuid.uuid4()),
         "admin_id": user_data["user_id"],
         "action_type": "manual_match_sms",
         "target_id": order_id,
-        "details": f"Manually matched SMS to order #{order_id[:8].upper()}, Overpayment: ₹{overpayment}",
+        "details": f"Manually matched SMS, Overpayment: {paisa_to_rupees(overpayment)}",
         "created_at": datetime.now(timezone.utc).isoformat()
     })
     
-    return {
-        "message": f"SMS manually matched to order #{order_id[:8].upper()}!",
-        "overpayment_credited": overpayment
-    }
+    return {"message": f"SMS matched to order #{order_id[:8].upper()}!", "overpayment_credited": paisa_to_rupees(overpayment)}
 
-# ===== Admin Package Management =====
-@api_router.get("/admin/packages", response_model=List[Package])
+# ===== ADMIN PACKAGE MANAGEMENT =====
+
+@api_router.get("/admin/packages")
 async def admin_list_packages(user_data: dict = Depends(get_current_admin)):
     packages = await db.packages.find({}, {"_id": 0}).sort("sort_order", 1).to_list(100)
+    for pkg in packages:
+        pkg["price"] = paisa_to_rupees(pkg.get("price_paisa", 0))
     return packages
 
 @api_router.post("/admin/packages")
 async def admin_create_package(request: CreatePackageRequest, user_data: dict = Depends(get_current_admin)):
-    # Get max sort_order
-    max_package = await db.packages.find_one({}, {"_id": 0, "sort_order": 1}, sort=[("sort_order", -1)])
-    next_sort = (max_package.get("sort_order", 0) + 1) if max_package else 1
+    max_pkg = await db.packages.find_one({}, sort=[("sort_order", -1)])
+    next_sort = (max_pkg.get("sort_order", 0) + 1) if max_pkg else 1
     
-    package_doc = {
+    pkg_doc = {
         "id": str(uuid.uuid4()),
         "name": request.name,
         "type": request.type,
         "amount": request.amount,
-        "price": request.price,
+        "price_paisa": rupees_to_paisa(request.price_rupees),
         "active": request.active,
         "sort_order": next_sort,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
     
-    await db.packages.insert_one(package_doc)
+    await db.packages.insert_one(pkg_doc)
     
-    # Log action
     await db.admin_actions.insert_one({
         "id": str(uuid.uuid4()),
         "admin_id": user_data["user_id"],
         "action_type": "create_package",
-        "target_id": package_doc["id"],
+        "target_id": pkg_doc["id"],
         "details": f"Created package: {request.name}",
         "created_at": datetime.now(timezone.utc).isoformat()
     })
     
-    return package_doc
+    pkg_doc["price"] = request.price_rupees
+    return pkg_doc
 
 @api_router.put("/admin/packages/{package_id}")
 async def admin_update_package(package_id: str, request: UpdatePackageRequest, user_data: dict = Depends(get_current_admin)):
-    package = await db.packages.find_one({"id": package_id}, {"_id": 0})
-    if not package:
+    pkg = await db.packages.find_one({"id": package_id})
+    if not pkg:
         raise HTTPException(status_code=404, detail="Package not found")
     
-    update_data = {k: v for k, v in request.dict().items() if v is not None}
-    if update_data:
-        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-        await db.packages.update_one({"id": package_id}, {"$set": update_data})
-        
-        # Log action
-        await db.admin_actions.insert_one({
-            "id": str(uuid.uuid4()),
-            "admin_id": user_data["user_id"],
-            "action_type": "update_package",
-            "target_id": package_id,
-            "details": f"Updated package: {package['name']}",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
+    update_data = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if request.name:
+        update_data["name"] = request.name
+    if request.type:
+        update_data["type"] = request.type
+    if request.amount is not None:
+        update_data["amount"] = request.amount
+    if request.price_rupees is not None:
+        update_data["price_paisa"] = rupees_to_paisa(request.price_rupees)
+    if request.active is not None:
+        update_data["active"] = request.active
+    if request.sort_order is not None:
+        update_data["sort_order"] = request.sort_order
+    
+    await db.packages.update_one({"id": package_id}, {"$set": update_data})
     
     return {"message": "Package updated"}
 
 @api_router.delete("/admin/packages/{package_id}")
 async def admin_delete_package(package_id: str, user_data: dict = Depends(get_current_admin)):
-    package = await db.packages.find_one({"id": package_id}, {"_id": 0})
-    if not package:
-        raise HTTPException(status_code=404, detail="Package not found")
-    
     await db.packages.delete_one({"id": package_id})
-    
-    # Log action
-    await db.admin_actions.insert_one({
-        "id": str(uuid.uuid4()),
-        "admin_id": user_data["user_id"],
-        "action_type": "delete_package",
-        "target_id": package_id,
-        "details": f"Deleted package: {package['name']}",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-    
     return {"message": "Package deleted"}
 
-# ===== Admin Garena Accounts Management =====
+# ===== ADMIN GARENA ACCOUNTS =====
+
 @api_router.get("/admin/garena-accounts")
 async def admin_list_garena_accounts(user_data: dict = Depends(get_current_admin)):
     accounts = await db.garena_accounts.find({}, {"_id": 0}).to_list(100)
-    # Don't send actual passwords/pins
-    for account in accounts:
-        account["password"] = "***hidden***"
-        account["pin"] = "***hidden***"
+    for acc in accounts:
+        acc["password"] = "***hidden***"
+        acc["pin"] = "***hidden***"
     return accounts
 
 @api_router.post("/admin/garena-accounts")
 async def admin_create_garena_account(request: CreateGarenaAccountRequest, user_data: dict = Depends(get_current_admin)):
-    account_doc = {
+    acc_doc = {
         "id": str(uuid.uuid4()),
         "name": request.name,
         "email": request.email,
@@ -1039,26 +1520,14 @@ async def admin_create_garena_account(request: CreateGarenaAccountRequest, user_
         "last_used": None,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
-    
-    await db.garena_accounts.insert_one(account_doc)
-    
-    # Log action
-    await db.admin_actions.insert_one({
-        "id": str(uuid.uuid4()),
-        "admin_id": user_data["user_id"],
-        "action_type": "create_garena_account",
-        "target_id": account_doc["id"],
-        "details": f"Created Garena account: {request.name}",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-    
-    return {"message": "Garena account created", "id": account_doc["id"]}
+    await db.garena_accounts.insert_one(acc_doc)
+    return {"message": "Garena account created", "id": acc_doc["id"]}
 
 @api_router.put("/admin/garena-accounts/{account_id}")
 async def admin_update_garena_account(account_id: str, request: UpdateGarenaAccountRequest, user_data: dict = Depends(get_current_admin)):
-    account = await db.garena_accounts.find_one({"id": account_id}, {"_id": 0})
-    if not account:
-        raise HTTPException(status_code=404, detail="Garena account not found")
+    acc = await db.garena_accounts.find_one({"id": account_id})
+    if not acc:
+        raise HTTPException(status_code=404, detail="Account not found")
     
     update_data = {}
     if request.name:
@@ -1074,48 +1543,25 @@ async def admin_update_garena_account(account_id: str, request: UpdateGarenaAcco
     
     if update_data:
         await db.garena_accounts.update_one({"id": account_id}, {"$set": update_data})
-        
-        # Log action
-        await db.admin_actions.insert_one({
-            "id": str(uuid.uuid4()),
-            "admin_id": user_data["user_id"],
-            "action_type": "update_garena_account",
-            "target_id": account_id,
-            "details": f"Updated Garena account: {account['name']}",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
     
     return {"message": "Garena account updated"}
 
 @api_router.delete("/admin/garena-accounts/{account_id}")
 async def admin_delete_garena_account(account_id: str, user_data: dict = Depends(get_current_admin)):
-    account = await db.garena_accounts.find_one({"id": account_id}, {"_id": 0})
-    if not account:
-        raise HTTPException(status_code=404, detail="Garena account not found")
-    
     await db.garena_accounts.delete_one({"id": account_id})
-    
-    # Log action
-    await db.admin_actions.insert_one({
-        "id": str(uuid.uuid4()),
-        "admin_id": user_data["user_id"],
-        "action_type": "delete_garena_account",
-        "target_id": account_id,
-        "details": f"Deleted Garena account: {account['name']}",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-    
     return {"message": "Garena account deleted"}
 
-# ===== Admin User Management =====
+# ===== ADMIN USER MANAGEMENT =====
+
 @api_router.get("/admin/users")
 async def admin_list_users(user_data: dict = Depends(get_current_admin)):
     users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    for u in users:
+        u["wallet_balance"] = paisa_to_rupees(u.get("wallet_balance_paisa", 0))
     return users
 
 @api_router.post("/admin/users")
 async def admin_create_user(request: CreateUserRequest, user_data: dict = Depends(get_current_admin)):
-    # Check if username exists
     existing = await db.users.find_one({"username": request.username})
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
@@ -1127,690 +1573,133 @@ async def admin_create_user(request: CreateUserRequest, user_data: dict = Depend
         "email": request.email,
         "phone": request.phone,
         "password_hash": hash_password(request.password),
-        "wallet_balance": 0.0,
+        "wallet_balance_paisa": 0,
         "blocked": False,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
-    
     await db.users.insert_one(user_doc)
-    
-    # Log action
-    await db.admin_actions.insert_one({
-        "id": str(uuid.uuid4()),
-        "admin_id": user_data["user_id"],
-        "action_type": "create_user",
-        "target_id": user_id,
-        "details": f"Created user: {request.username}",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
     
     return {"message": "User created", "user_id": user_id}
 
 @api_router.put("/admin/users/{user_id}")
-async def admin_update_user(user_id: str, request: UpdateUserRequest, user_data: dict = Depends(get_current_admin)):
-    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+async def admin_update_user(user_id: str, blocked: Optional[bool] = None, password: Optional[str] = None, user_data: dict = Depends(get_current_admin)):
+    user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
     update_data = {}
-    if request.blocked is not None:
-        update_data["blocked"] = request.blocked
-    if request.password:
-        update_data["password_hash"] = hash_password(request.password)
+    if blocked is not None:
+        update_data["blocked"] = blocked
+    if password:
+        update_data["password_hash"] = hash_password(password)
     
     if update_data:
         await db.users.update_one({"id": user_id}, {"$set": update_data})
-        
-        # Log action
-        action_detail = f"Updated user {user['username']}: "
-        if request.blocked is not None:
-            action_detail += f"blocked={request.blocked} "
-        if request.password:
-            action_detail += "password reset"
-            
-        await db.admin_actions.insert_one({
-            "id": str(uuid.uuid4()),
-            "admin_id": user_data["user_id"],
-            "action_type": "update_user",
-            "target_id": user_id,
-            "details": action_detail,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
     
     return {"message": "User updated"}
 
 @api_router.delete("/admin/users/{user_id}")
 async def admin_delete_user(user_id: str, user_data: dict = Depends(get_current_admin)):
-    user = await db.users.find_one({"id": user_id}, {"_id": 0})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Soft delete - mark as blocked and deleted
-    await db.users.update_one(
-        {"id": user_id},
-        {"$set": {
-            "blocked": True,
-            "deleted": True,
-            "deleted_at": datetime.now(timezone.utc).isoformat()
-        }}
-    )
-    
-    # Log action
-    await db.admin_actions.insert_one({
-        "id": str(uuid.uuid4()),
-        "admin_id": user_data["user_id"],
-        "action_type": "delete_user",
-        "target_id": user_id,
-        "details": f"Deleted user: {user['username']}",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-    
+    await db.users.update_one({"id": user_id}, {"$set": {"deleted": True, "blocked": True}})
     return {"message": "User deleted"}
 
-# ===== Queue & Automation =====
-queue_lock = asyncio.Lock()
-processing_orders = set()
+# ===== INIT ENDPOINT =====
 
-async def add_to_queue(order_id: str):
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {"status": "queued", "updated_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    # In production, use a proper queue like Redis/RabbitMQ
-    asyncio.create_task(process_order(order_id))
-
-async def process_order(order_id: str):
-    async with queue_lock:
-        if order_id in processing_orders:
-            return
-        processing_orders.add(order_id)
-    
-    try:
-        order = await db.orders.find_one({"id": order_id}, {"_id": 0})
-        if not order:
-            return
-        
-        await db.orders.update_one(
-            {"id": order_id},
-            {"$set": {"status": "processing", "automation_state": "INIT", "updated_at": datetime.now(timezone.utc).isoformat()}}
-        )
-        
-        # Run automation
-        success = await run_automation(order)
-        
-        if success:
-            await db.orders.update_one(
-                {"id": order_id},
-                {"$set": {
-                    "status": "success",
-                    "automation_state": "DONE",
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                }}
-            )
-        else:
-            retry_count = order.get("retry_count", 0) + 1
-            if retry_count >= 3:
-                await db.orders.update_one(
-                    {"id": order_id},
-                    {"$set": {
-                        "status": "manual_review",
-                        "automation_state": "FAILED",
-                        "retry_count": retry_count,
-                        "updated_at": datetime.now(timezone.utc).isoformat()
-                    }}
-                )
-            else:
-                await db.orders.update_one(
-                    {"id": order_id},
-                    {"$set": {
-                        "status": "queued",
-                        "retry_count": retry_count,
-                        "updated_at": datetime.now(timezone.utc).isoformat()
-                    }}
-                )
-                await asyncio.sleep(30)  # Wait before retry
-                await process_order(order_id)
-    finally:
-        processing_orders.discard(order_id)
-
-async def get_active_garena_account():
-    """Get an active Garena account from database"""
-    # Get least recently used active account
-    account = await db.garena_accounts.find_one(
-        {"active": True},
-        {"_id": 0},
-        sort=[("last_used", 1)]  # Oldest first (or None)
-    )
-    
-    if not account:
-        logging.error("No active Garena accounts found")
-        return None
-    
-    # Update last_used
-    await db.garena_accounts.update_one(
-        {"id": account["id"]},
-        {"$set": {"last_used": datetime.now(timezone.utc).isoformat()}}
-    )
-    
-    # Decrypt credentials
-    account["password"] = decrypt_data(account["password"])
-    account["pin"] = decrypt_data(account["pin"])
-    
-    return account
-
-async def run_automation(order: dict) -> bool:
-    """Run Playwright automation for Garena top-up with stealth mode"""
-    from playwright.async_api import async_playwright
-    from playwright_stealth import stealth_async
-    import random
-    
-    # Get Garena account from database
-    garena_account = await get_active_garena_account()
-    if not garena_account:
-        logging.error(f"No active Garena account available for order {order['id']}")
-        return False
-    
-    GARENA_EMAIL = garena_account["email"]
-    GARENA_PASSWORD = garena_account["password"]
-    SECURITY_PIN = garena_account["pin"]
-    
-    logging.info(f"Using Garena account: {garena_account['name']} ({GARENA_EMAIL})")
-    
-    async def human_delay(min_ms=500, max_ms=2000):
-        """Add random human-like delay"""
-        await asyncio.sleep(random.uniform(min_ms/1000, max_ms/1000))
-    
-    async def human_type(element, text):
-        """Type text with human-like delays"""
-        for char in text:
-            await element.type(char)
-            await asyncio.sleep(random.uniform(0.05, 0.15))
-    
-    try:
-        async with async_playwright() as p:
-            # Launch with stealth settings
-            browser = await p.chromium.launch(
-                headless=False,
-                args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-web-security',
-                    '--disable-features=IsolateOrigins,site-per-process'
-                ]
-            )
-            
-            # Create context with realistic settings
-            context = await browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                locale='en-US',
-                timezone_id='Asia/Kuala_Lumpur'
-            )
-            
-            page = await context.new_page()
-            
-            # Apply stealth mode
-            await stealth_async(page)
-            
-            logging.info(f"Starting stealth automation for order {order['id']}")
-            
-            # STEP 1: Open Garena Shop
-            await db.orders.update_one(
-                {"id": order["id"]},
-                {"$set": {"automation_state": "OPEN_SITE"}}
-            )
-            logging.info("Step 1: Opening Garena shop")
-            await page.goto("https://shop.garena.my/", wait_until="domcontentloaded", timeout=30000)
-            await human_delay(2000, 4000)
-            
-            # STEP 2: Select Free Fire
-            logging.info("Step 2: Selecting Free Fire")
-            try:
-                freefire_selector = await page.wait_for_selector('text="Free Fire"', timeout=15000)
-                await human_delay(500, 1500)
-                await freefire_selector.click()
-                await human_delay(2000, 4000)
-            except Exception as e:
-                logging.error(f"Could not find Free Fire: {e}")
-                await browser.close()
-                return False
-            
-            # STEP 3: Insert Player UID
-            await db.orders.update_one(
-                {"id": order["id"]},
-                {"$set": {"automation_state": "INPUT_UID"}}
-            )
-            logging.info(f"Step 3: Inserting Player UID: {order['player_uid']}")
-            try:
-                uid_input = await page.wait_for_selector('input[placeholder*="player ID"]', timeout=15000)
-                await human_delay(500, 1000)
-                await human_type(uid_input, order["player_uid"])
-                await human_delay(1000, 2000)
-            except Exception as e:
-                logging.error(f"Could not find UID input: {e}")
-                await browser.close()
-                return False
-            
-            # STEP 4: Click Redeem Tab
-            logging.info("Step 4: Clicking Redeem tab")
-            try:
-                redeem_btn = await page.wait_for_selector('button:has-text("Redeem")', timeout=15000)
-                await human_delay(500, 1500)
-                await redeem_btn.click()
-                await human_delay(2000, 3000)
-            except Exception as e:
-                logging.error(f"Could not click Redeem: {e}")
-                await browser.close()
-                return False
-            
-            # STEP 5: Click Login Button
-            logging.info("Step 5: Clicking Login button")
-            try:
-                login_btn = await page.wait_for_selector('button:has-text("Login")', timeout=15000)
-                await human_delay(500, 1500)
-                await login_btn.click()
-                await human_delay(3000, 5000)
-                
-                # Check if email/password login modal appears
-                email_input = await page.query_selector('input[type="email"], input[placeholder*="email" i]')
-                if email_input:
-                    logging.info("Login modal appeared - entering credentials")
-                    await human_type(email_input, GARENA_EMAIL)
-                    await human_delay(500, 1000)
-                    
-                    password_input = await page.wait_for_selector('input[type="password"]', timeout=10000)
-                    await human_type(password_input, GARENA_PASSWORD)
-                    await human_delay(500, 1000)
-                    
-                    login_submit = await page.wait_for_selector('button[type="submit"], button:has-text("Login")', timeout=10000)
-                    await login_submit.click()
-                    await human_delay(4000, 6000)
-                    logging.info("Login completed")
-                else:
-                    logging.info("Already logged in")
-            except Exception as e:
-                logging.warning(f"Login step issue: {e}")
-            
-            # STEP 6: Select Diamond Amount
-            await db.orders.update_one(
-                {"id": order["id"]},
-                {"$set": {"automation_state": "SELECT_PACKAGE"}}
-            )
-            logging.info(f"Step 6: Selecting {order['amount']} {order['package_type']}")
-            try:
-                # Scroll to see options
-                await page.evaluate('window.scrollTo(0, 600)')
-                await human_delay(1000, 2000)
-                
-                # Select based on exact amount from order
-                target_amount = str(order["amount"])
-                if order["amount"] >= 1000:
-                    # Format with comma for thousands
-                    target_amount = f"{order['amount']:,}"
-                
-                diamond_selector = await page.wait_for_selector(
-                    f'text="{target_amount}"',
-                    timeout=15000
-                )
-                await human_delay(500, 1500)
-                await diamond_selector.click()
-                await human_delay(2000, 3000)
-                logging.info(f"Selected {target_amount} package")
-            except Exception as e:
-                logging.error(f"Could not select package: {e}")
-                await browser.close()
-                return False
-            
-            # STEP 7: Click Proceed to Payment
-            logging.info("Step 7: Clicking Proceed to Payment")
-            try:
-                proceed_btn = await page.wait_for_selector('button:has-text("Proceed to Payment")', timeout=15000)
-                await human_delay(1000, 2000)
-                await proceed_btn.click()
-                await human_delay(3000, 5000)
-            except Exception as e:
-                logging.error(f"Could not click Proceed to Payment: {e}")
-                await browser.close()
-                return False
-            
-            # STEP 8: Select Wallet Payment Method
-            logging.info("Step 8: Looking for Wallet payment option")
-            try:
-                await page.evaluate('window.scrollTo(0, 400)')
-                await human_delay(1000, 2000)
-                
-                # Try multiple selectors for Wallet
-                wallet_found = False
-                wallet_selectors = [
-                    'text="Wallet"',
-                    'text="wallet"',
-                    'text="Shell"',
-                    'button:has-text("Wallet")',
-                    'div:has-text("Wallet")'
-                ]
-                
-                for selector in wallet_selectors:
-                    wallet_elem = await page.query_selector(selector)
-                    if wallet_elem:
-                        logging.info(f"Found Wallet with selector: {selector}")
-                        await human_delay(500, 1500)
-                        await wallet_elem.click()
-                        await human_delay(2000, 3000)
-                        wallet_found = True
-                        break
-                
-                if not wallet_found:
-                    logging.error("Wallet option not found")
-                    await browser.close()
-                    return False
-                    
-            except Exception as e:
-                logging.error(f"Could not select Wallet: {e}")
-                await browser.close()
-                return False
-            
-            # STEP 9: Select UP Points
-            logging.info("Step 9: Looking for UP Points")
-            try:
-                await human_delay(1000, 2000)
-                
-                up_points_selectors = [
-                    'text="UP Points"',
-                    'text="UP"',
-                    'button:has-text("UP Points")',
-                    'div:has-text("UP Points")'
-                ]
-                
-                up_found = False
-                for selector in up_points_selectors:
-                    up_elem = await page.query_selector(selector)
-                    if up_elem:
-                        logging.info(f"Found UP Points with selector: {selector}")
-                        await human_delay(500, 1500)
-                        await up_elem.click()
-                        await human_delay(2000, 3000)
-                        up_found = True
-                        break
-                
-                if not up_found:
-                    logging.warning("UP Points not found, continuing...")
-                    
-            except Exception as e:
-                logging.warning(f"UP Points selection issue: {e}")
-            
-            # STEP 10: Enter Security PIN
-            await db.orders.update_one(
-                {"id": order["id"]},
-                {"$set": {"automation_state": "CONFIRM_PURCHASE"}}
-            )
-            logging.info("Step 10: Looking for Security PIN input")
-            try:
-                pin_input = await page.wait_for_selector(
-                    'input[type="password"], input[placeholder*="PIN" i], input[name*="pin" i]',
-                    timeout=15000
-                )
-                await human_delay(500, 1000)
-                await human_type(pin_input, SECURITY_PIN)
-                await human_delay(1000, 2000)
-                logging.info("Security PIN entered")
-            except Exception as e:
-                logging.warning(f"PIN input not found or not required: {e}")
-            
-            # STEP 11: Click Confirm/Purchase Button
-            logging.info("Step 11: Confirming purchase")
-            try:
-                confirm_selectors = [
-                    'button:has-text("Confirm")',
-                    'button:has-text("Purchase")',
-                    'button:has-text("Pay Now")',
-                    'button:has-text("Buy Now")',
-                    'button[type="submit"]'
-                ]
-                
-                confirm_btn = None
-                for selector in confirm_selectors:
-                    confirm_btn = await page.query_selector(selector)
-                    if confirm_btn:
-                        logging.info(f"Found confirm button: {selector}")
-                        break
-                
-                if confirm_btn:
-                    await human_delay(1000, 2000)
-                    await confirm_btn.click()
-                    await human_delay(5000, 8000)
-                else:
-                    logging.error("Confirm button not found")
-                    await browser.close()
-                    return False
-            except Exception as e:
-                logging.error(f"Could not confirm purchase: {e}")
-                await browser.close()
-                return False
-            
-            # STEP 12: Verify Success
-            await db.orders.update_one(
-                {"id": order["id"]},
-                {"$set": {"automation_state": "VERIFY_SUCCESS"}}
-            )
-            logging.info("Step 12: Verifying transaction success")
-            try:
-                success_indicators = [
-                    'text=/success/i',
-                    'text=/complete/i',
-                    'text=/successful/i',
-                    '[class*="success"]',
-                    'text=/transaction.*complete/i'
-                ]
-                
-                success_found = False
-                for selector in success_indicators:
-                    success_elem = await page.query_selector(selector)
-                    if success_elem:
-                        logging.info(f"Success indicator found: {selector}")
-                        success_found = True
-                        break
-                
-                if success_found:
-                    logging.info(f"Transaction successful for order {order['id']}")
-                    await browser.close()
-                    return True
-                else:
-                    # Wait a bit more and check again
-                    await asyncio.sleep(5)
-                    page_text = await page.inner_text('body')
-                    if any(word in page_text.lower() for word in ['success', 'complete', 'successful']):
-                        logging.info(f"Transaction successful for order {order['id']}")
-                        await browser.close()
-                        return True
-                    else:
-                        logging.error("Success indicator not found")
-                        await browser.close()
-                        return False
-                        
-            except Exception as e:
-                logging.error(f"Could not verify success: {e}")
-                await browser.close()
-                return False
-                
-    except Exception as e:
-        logging.error(f"Automation error for order {order['id']}: {str(e)}")
-        return False
-
-# ===== Admin Endpoints =====
-@api_router.get("/admin/dashboard", response_model=DashboardStats)
-async def get_dashboard_stats(user_data: dict = Depends(get_current_admin)):
-    total_orders = await db.orders.count_documents({})
-    success_orders = await db.orders.count_documents({"status": "success"})
-    failed_orders = await db.orders.count_documents({"status": "failed"})
-    suspicious_orders = await db.orders.count_documents({"status": "suspicious"})
-    duplicate_orders = await db.orders.count_documents({"status": "duplicate_payment"})
-    pending_orders = await db.orders.count_documents({"status": {"$in": ["pending_payment", "queued", "processing"]}})
-    
-    # Calculate total sales
-    pipeline = [
-        {"$match": {"status": "success"}},
-        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
-    ]
-    sales_result = await db.orders.aggregate(pipeline).to_list(1)
-    total_sales = sales_result[0]["total"] if sales_result else 0.0
-    
-    # Calculate total wallet balance
-    wallet_pipeline = [
-        {"$group": {"_id": None, "total": {"$sum": "$wallet_balance"}}}
-    ]
-    wallet_result = await db.users.aggregate(wallet_pipeline).to_list(1)
-    total_wallet_balance = wallet_result[0]["total"] if wallet_result else 0.0
-    
-    return DashboardStats(
-        total_sales=total_sales,
-        total_orders=total_orders,
-        success_orders=success_orders,
-        failed_orders=failed_orders,
-        suspicious_orders=suspicious_orders,
-        duplicate_orders=duplicate_orders,
-        pending_orders=pending_orders,
-        total_wallet_balance=total_wallet_balance
-    )
-
-@api_router.get("/admin/orders")
-async def admin_list_orders(status: Optional[str] = None, user_data: dict = Depends(get_current_admin)):
-    query = {}
-    if status:
-        query["status"] = status
-    
-    orders = await db.orders.find(query, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
-    return orders
-
-@api_router.post("/admin/orders/{order_id}/retry")
-async def admin_retry_order(order_id: str, user_data: dict = Depends(get_current_admin)):
-    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {"status": "queued", "retry_count": 0, "updated_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    
-    # Log admin action
-    await db.admin_actions.insert_one({
-        "id": str(uuid.uuid4()),
-        "admin_id": user_data["user_id"],
-        "action_type": "retry_order",
-        "target_id": order_id,
-        "details": f"Retried order {order_id}",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-    
-    await add_to_queue(order_id)
-    
-    return {"message": "Order added to queue for retry"}
-
-@api_router.post("/admin/orders/{order_id}/complete-manual")
-async def admin_complete_order(order_id: str, user_data: dict = Depends(get_current_admin)):
-    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    
-    await db.orders.update_one(
-        {"id": order_id},
-        {"$set": {
-            "status": "success",
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }}
-    )
-    
-    # Log admin action
-    await db.admin_actions.insert_one({
-        "id": str(uuid.uuid4()),
-        "admin_id": user_data["user_id"],
-        "action_type": "manual_complete",
-        "target_id": order_id,
-        "details": f"Manually completed order {order_id}",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-    
-    return {"message": "Order marked as success"}
-
-@api_router.get("/admin/payments/inbox")
-async def admin_payments_inbox(user_data: dict = Depends(get_current_admin)):
-    # Get unmatched SMS messages
-    unmatched = await db.sms_messages.find({"used": False}, {"_id": 0}).sort("parsed_at", -1).limit(50).to_list(50)
-    return unmatched
-
-@api_router.get("/admin/action-logs")
-async def admin_action_logs(user_data: dict = Depends(get_current_admin)):
-    logs = await db.admin_actions.find({}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
-    return logs
-
-# ===== Initialize Data =====
 @api_router.post("/admin/init")
 async def initialize_data():
-    """Initialize default packages and admin account"""
+    """Initialize database with default data"""
     # Check if already initialized
-    existing_packages = await db.packages.count_documents({})
-    if existing_packages > 0:
+    admin = await db.admins.find_one({"username": "admin"})
+    if admin:
         return {"message": "Already initialized"}
     
-    # Create Garena-matching packages
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat()
+    # Create admin
+    admin_doc = {
+        "id": str(uuid.uuid4()),
+        "username": "admin",
+        "password_hash": hash_password("admin123"),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.admins.insert_one(admin_doc)
     
+    # Create packages (prices in paisa)
     packages = [
-        # Diamonds
-        {"id": str(uuid.uuid4()), "name": "25 Diamonds", "type": "diamond", "amount": 25, "price": 0.99, "active": True, "sort_order": 1, "created_at": now, "updated_at": now},
-        {"id": str(uuid.uuid4()), "name": "50 Diamonds", "type": "diamond", "amount": 50, "price": 1.99, "active": True, "sort_order": 2, "created_at": now, "updated_at": now},
-        {"id": str(uuid.uuid4()), "name": "115 Diamonds", "type": "diamond", "amount": 115, "price": 4.50, "active": True, "sort_order": 3, "created_at": now, "updated_at": now},
-        {"id": str(uuid.uuid4()), "name": "240 Diamonds", "type": "diamond", "amount": 240, "price": 9.00, "active": True, "sort_order": 4, "created_at": now, "updated_at": now},
-        {"id": str(uuid.uuid4()), "name": "610 Diamonds", "type": "diamond", "amount": 610, "price": 22.50, "active": True, "sort_order": 5, "created_at": now, "updated_at": now},
-        {"id": str(uuid.uuid4()), "name": "1,240 Diamonds", "type": "diamond", "amount": 1240, "price": 45.00, "active": True, "sort_order": 6, "created_at": now, "updated_at": now},
-        {"id": str(uuid.uuid4()), "name": "2,530 Diamonds", "type": "diamond", "amount": 2530, "price": 90.00, "active": True, "sort_order": 7, "created_at": now, "updated_at": now},
-        
-        # Memberships
-        {"id": str(uuid.uuid4()), "name": "Weekly Membership", "type": "membership", "amount": 7, "price": 5.99, "active": True, "sort_order": 8, "created_at": now, "updated_at": now},
-        {"id": str(uuid.uuid4()), "name": "Monthly Membership", "type": "membership", "amount": 30, "price": 19.99, "active": True, "sort_order": 9, "created_at": now, "updated_at": now},
-        
-        # Evo Access
-        {"id": str(uuid.uuid4()), "name": "Evo Access 3D", "type": "evo_access", "amount": 3, "price": 3.99, "active": True, "sort_order": 10, "created_at": now, "updated_at": now},
-        {"id": str(uuid.uuid4()), "name": "Evo Access 7D", "type": "evo_access", "amount": 7, "price": 7.99, "active": True, "sort_order": 11, "created_at": now, "updated_at": now},
-        {"id": str(uuid.uuid4()), "name": "Evo Access 30D", "type": "evo_access", "amount": 30, "price": 24.99, "active": True, "sort_order": 12, "created_at": now, "updated_at": now},
+        {"name": "25 Diamonds", "type": "diamond", "amount": 25, "price_paisa": 99},
+        {"name": "50 Diamonds", "type": "diamond", "amount": 50, "price_paisa": 149},
+        {"name": "115 Diamonds", "type": "diamond", "amount": 115, "price_paisa": 299},
+        {"name": "240 Diamonds", "type": "diamond", "amount": 240, "price_paisa": 499},
+        {"name": "610 Diamonds", "type": "diamond", "amount": 610, "price_paisa": 999},
+        {"name": "1,240 Diamonds", "type": "diamond", "amount": 1240, "price_paisa": 1999},
+        {"name": "2,530 Diamonds", "type": "diamond", "amount": 2530, "price_paisa": 3999},
+        {"name": "Weekly Membership", "type": "membership", "amount": 7, "price_paisa": 19900},
+        {"name": "Monthly Membership", "type": "membership", "amount": 30, "price_paisa": 59900},
+        {"name": "Evo Access 3D", "type": "evo_access", "amount": 3, "price_paisa": 9900},
+        {"name": "Evo Access 7D", "type": "evo_access", "amount": 7, "price_paisa": 19900},
+        {"name": "Evo Access 30D", "type": "evo_access", "amount": 30, "price_paisa": 49900},
     ]
-    await db.packages.insert_many(packages)
     
-    # Create default admin
-    admin_exists = await db.admins.count_documents({})
-    if admin_exists == 0:
-        admin_doc = {
-            "id": str(uuid.uuid4()),
-            "username": "admin",
-            "email": "admin@diamondstore.com",
-            "password_hash": hash_password("admin123"),
-            "created_at": now
-        }
-        await db.admins.insert_one(admin_doc)
+    for i, pkg in enumerate(packages):
+        pkg["id"] = str(uuid.uuid4())
+        pkg["active"] = True
+        pkg["sort_order"] = i + 1
+        pkg["created_at"] = datetime.now(timezone.utc).isoformat()
+        pkg["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.packages.insert_one(pkg)
     
-    return {"message": "Initialization complete. Admin username: admin, password: admin123"}
+    # Create test user
+    test_user = {
+        "id": str(uuid.uuid4()),
+        "username": "testclient",
+        "email": "test@example.com",
+        "phone": "1234567890",
+        "password_hash": hash_password("test123"),
+        "wallet_balance_paisa": 5000,  # ₹50
+        "blocked": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.users.insert_one(test_user)
+    
+    # Create test Garena account
+    garena_acc = {
+        "id": str(uuid.uuid4()),
+        "name": "Primary Account",
+        "email": "garena@example.com",
+        "password": encrypt_data("garena123"),
+        "pin": encrypt_data("1234"),
+        "active": True,
+        "last_used": None,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.garena_accounts.insert_one(garena_acc)
+    
+    # Create indexes
+    await db.orders.create_index("payment_rrn", unique=True, sparse=True)
+    await db.orders.create_index("sms_fingerprint", unique=True, sparse=True)
+    await db.sms_messages.create_index("fingerprint", unique=True)
+    await db.sms_messages.create_index("rrn", sparse=True)
+    
+    return {"message": "Initialization complete. Admin: admin/admin123, Test user: testclient/test123"}
 
-app.include_router(api_router)
+# ===== CORS & APP SETUP =====
 
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+app.include_router(api_router)
+
+@app.on_event("startup")
+async def startup_db_client():
+    logger.info("Nex-Store API v2.0 started")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)
