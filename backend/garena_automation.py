@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeout
-from playwright_stealth import stealth_async
+from playwright_stealth import Stealth
 
 logger = logging.getLogger(__name__)
 
