@@ -312,6 +312,11 @@ const AdminAuditLogs = () => {
                             <div className="font-medium">{log.target_username}</div>
                             <div className="text-xs text-gray-500">User</div>
                           </div>
+                        ) : log.target_user_id ? (
+                          <div>
+                            <div className="font-mono text-xs">{log.target_user_id.slice(0, 8).toUpperCase()}</div>
+                            <div className="text-xs text-gray-500">User ID</div>
+                          </div>
                         ) : log.target_id ? (
                           <div>
                             <div className="font-mono text-xs">{log.target_id.slice(0, 8).toUpperCase()}</div>
