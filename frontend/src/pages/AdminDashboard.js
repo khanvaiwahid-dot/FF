@@ -201,6 +201,23 @@ const AdminDashboard = () => {
             </div>
             <p className="text-sm text-gray-600">Create, block, and manage users</p>
           </Link>
+
+          <Link
+            to="/admin/audit-logs"
+            data-testid="quick-action-audit-logs"
+            className="bg-white border border-gray-200 rounded-lg p-6 hover:border-orange-500 hover:shadow-md transition-all"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                <ClipboardList className="w-6 h-6 text-orange-600" />
+              </div>
+              <div>
+                <p className="text-gray-900 font-bold">Audit Logs</p>
+                <p className="text-xs text-gray-600">Admin actions history</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600">View all admin actions and wallet changes</p>
+          </Link>
         </div>
 
         {/* Order Management Actions */}
