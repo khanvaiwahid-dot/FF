@@ -901,10 +901,9 @@ async def reset_password(request: Request, reset_data: ResetPasswordRequest):
 @api_router.post("/admin/login", response_model=TokenResponse)
 @limiter.limit("5/minute")  # Rate limit: 5 admin login attempts per minute per IP
 async def admin_login(request: Request, login_data: LoginRequest):
-async def admin_login(request: LoginRequest):
-    admin = await db.admins.find_one({"username": request.identifier}, {"_id": 0})
+    admin = await db.admins.find_one({"username": login_data.identifier}, {"_id": 0})
     
-    if not admin or not verify_password(request.password, admin["password_hash"]):
+    if not admin or not verify_password(login_data.password, admin["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid admin credentials")
     
     token = create_access_token({"sub": admin["id"], "type": "admin", "username": admin["username"]})
@@ -912,10 +911,10 @@ async def admin_login(request: LoginRequest):
     return TokenResponse(token=token, user_type="admin", username=admin["username"])
 
 @api_router.post("/admin/reset-password")
-async def admin_reset_password(request: ResetPasswordRequest, user_data: dict = Depends(get_current_admin)):
+async def admin_reset_password(reset_data: ResetPasswordRequest, user_data: dict = Depends(get_current_admin)):
     await db.admins.update_one(
         {"id": user_data["user_id"]},
-        {"$set": {"password_hash": hash_password(request.new_password)}}
+        {"$set": {"password_hash": hash_password(reset_data.new_password)}}
     )
     return {"message": "Admin password reset successful"}
 
