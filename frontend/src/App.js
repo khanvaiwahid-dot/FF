@@ -23,6 +23,7 @@ import AdminProducts from './pages/admin/AdminProducts';
 import AdminGarenaAccounts from './pages/admin/AdminGarenaAccounts';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminSMSInbox from './pages/admin/AdminSMSInbox';
+import AdminAuditLogs from './pages/admin/AdminAuditLogs';
 import UserOrders from './pages/UserOrders';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
