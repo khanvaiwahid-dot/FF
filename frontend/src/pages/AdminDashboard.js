@@ -29,13 +29,18 @@ const AdminDashboard = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [automationStatus, setAutomationStatus] = useState(null);
+  const [automationIssues, setAutomationIssues] = useState(null);
   const [processingOrder, setProcessingOrder] = useState(null);
 
   useEffect(() => {
     fetchDashboardStats();
     fetchAutomationStatus();
+    fetchAutomationIssues();
     // Poll automation status every 10 seconds
-    const interval = setInterval(fetchAutomationStatus, 10000);
+    const interval = setInterval(() => {
+      fetchAutomationStatus();
+      fetchAutomationIssues();
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -56,6 +61,15 @@ const AdminDashboard = () => {
       setAutomationStatus(response.data);
     } catch (error) {
       console.error('Failed to fetch automation status');
+    }
+  };
+
+  const fetchAutomationIssues = async () => {
+    try {
+      const response = await axios.get(`${API}/admin/automation/issues`);
+      setAutomationIssues(response.data);
+    } catch (error) {
+      console.error('Failed to fetch automation issues');
     }
   };
 
