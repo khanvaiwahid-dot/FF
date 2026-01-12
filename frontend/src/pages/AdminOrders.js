@@ -4,7 +4,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { useAuth, API } from '@/App';
 import { Button } from '@/components/ui/button';
-import { Package, LayoutDashboard, AlertTriangle, Inbox, ArrowLeft, Search } from 'lucide-react';
+import { Package, LayoutDashboard, AlertTriangle, Inbox, ArrowLeft, Search, CheckCircle, XCircle, Clock, RefreshCw } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
 const AdminOrders = () => {
@@ -46,8 +46,8 @@ const AdminOrders = () => {
     if (searchTerm) {
       filtered = filtered.filter(order => 
         order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.player_uid.toLowerCase().includes(searchTerm.toLowerCase())
+        order.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        order.player_uid?.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
@@ -64,9 +64,9 @@ const AdminOrders = () => {
     }
   };
 
-  const handleCompleteManual = async (orderId) => {
+  const handleMarkSuccess = async (orderId) => {
     try {
-      await axios.post(`${API}/admin/orders/${orderId}/complete-manual`);
+      await axios.post(`${API}/admin/orders/${orderId}/mark-success`);
       toast.success('Order marked as success');
       fetchOrders();
     } catch (error) {
@@ -74,22 +74,22 @@ const AdminOrders = () => {
     }
   };
 
-  const getStatusColor = (status) => {
-    const colors = {
-      pending_payment: 'text-warning bg-warning/10',
-      paid: 'text-success bg-success/10',
-      queued: 'text-info bg-info/10',
-      processing: 'text-info bg-info/10',
-      wallet_partial_paid: 'text-warning bg-warning/10',
-      wallet_fully_paid: 'text-success bg-success/10',
-      success: 'text-success bg-success/10',
-      failed: 'text-error bg-error/10',
-      manual_review: 'text-warning bg-warning/10',
-      suspicious: 'text-error bg-error/10',
-      duplicate_payment: 'text-error bg-error/10',
-      expired: 'text-gray-400 bg-gray-400/10'
+  const getStatusConfig = (status) => {
+    const configs = {
+      success: { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', label: 'Success' },
+      pending_payment: { icon: Clock, color: 'text-yellow-600', bg: 'bg-yellow-100', label: 'Pending Payment' },
+      paid: { icon: CheckCircle, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Paid' },
+      queued: { icon: Clock, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Queued' },
+      processing: { icon: RefreshCw, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Processing' },
+      failed: { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100', label: 'Failed' },
+      manual_review: { icon: AlertTriangle, color: 'text-orange-600', bg: 'bg-orange-100', label: 'Manual Review' },
+      suspicious: { icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-100', label: 'Suspicious' },
+      duplicate_payment: { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100', label: 'Duplicate' },
+      expired: { icon: Clock, color: 'text-gray-600', bg: 'bg-gray-100', label: 'Expired' },
+      invalid_uid: { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100', label: 'Invalid UID' },
+      refunded: { icon: CheckCircle, color: 'text-gray-600', bg: 'bg-gray-100', label: 'Refunded' }
     };
-    return colors[status] || 'text-gray-400 bg-gray-400/10';
+    return configs[status] || { icon: Clock, color: 'text-gray-600', bg: 'bg-gray-100', label: status };
   };
 
   const formatDate = (dateString) => {
@@ -103,34 +103,34 @@ const AdminOrders = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-primary">Loading orders...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
-      <div className="bg-card/80 backdrop-blur-sm border-b border-white/5 sticky top-0 z-10">
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center gap-3">
           <button
             onClick={() => navigate('/admin/dashboard')}
             data-testid="back-button"
-            className="text-gray-400 hover:text-white"
+            className="text-gray-600 hover:text-gray-900"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-lg font-heading font-bold text-white" data-testid="admin-orders-title">All Orders</h1>
-            <p className="text-xs text-gray-400">{filteredOrders.length} orders</p>
+            <h1 className="text-lg font-heading font-bold text-gray-900" data-testid="admin-orders-title">All Orders</h1>
+            <p className="text-xs text-gray-600">{filteredOrders.length} orders</p>
           </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* Filters */}
-        <div className="bg-card/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 space-y-4">
+        <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-4 shadow-sm">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1">
               <div className="relative">
@@ -141,11 +141,11 @@ const AdminOrders = () => {
                   placeholder="Search by order ID, username, or UID"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 bg-white/5 border-white/10 focus:border-primary focus:ring-1 focus:ring-primary rounded-xl h-12 text-white"
+                  className="pl-10 border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary rounded-xl h-12"
                 />
               </div>
             </div>
-            <div className="flex gap-2 overflow-x-auto">
+            <div className="flex gap-2 overflow-x-auto pb-2">
               {['all', 'success', 'pending_payment', 'processing', 'failed', 'manual_review'].map(status => (
                 <button
                   key={status}
@@ -153,11 +153,11 @@ const AdminOrders = () => {
                   onClick={() => setFilterStatus(status)}
                   className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
                     filterStatus === status
-                      ? 'bg-primary text-black'
-                      : 'bg-white/5 text-gray-400 hover:text-white'
+                      ? 'bg-primary text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-orange-50 hover:text-primary'
                   }`}
                 >
-                  {status.replace('_', ' ')}
+                  {status === 'all' ? 'All' : status.replace('_', ' ')}
                 </button>
               ))}
             </div>
@@ -167,82 +167,90 @@ const AdminOrders = () => {
         {/* Orders List */}
         <div className="space-y-3">
           {filteredOrders.length === 0 ? (
-            <div className="bg-card/60 backdrop-blur-xl border border-white/5 rounded-2xl p-8 text-center">
-              <Package className="w-12 h-12 mx-auto mb-2 text-gray-400 opacity-50" />
-              <p className="text-gray-400">No orders found</p>
+            <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center shadow-sm">
+              <Package className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+              <p className="text-gray-500">No orders found</p>
             </div>
           ) : (
-            filteredOrders.map((order) => (
-              <div
-                key={order.id}
-                data-testid={`order-${order.id}`}
-                className="bg-card/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-colors"
-              >
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <p className="text-white font-bold font-mono">#{order.id.slice(0, 8)}</p>
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
-                        {order.status.replace('_', ' ')}
-                      </span>
+            filteredOrders.map((order) => {
+              const statusConfig = getStatusConfig(order.status);
+              const StatusIcon = statusConfig.icon;
+              
+              return (
+                <div
+                  key={order.id}
+                  data-testid={`order-${order.id}`}
+                  className="bg-white border border-gray-200 rounded-xl p-5 hover:border-primary/50 hover:shadow-md transition-all"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <p className="text-gray-900 font-bold font-mono">#{order.id.slice(0, 8).toUpperCase()}</p>
+                        <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${statusConfig.bg} ${statusConfig.color}`}>
+                          <StatusIcon className="w-3 h-3" />
+                          {statusConfig.label}
+                        </span>
+                      </div>
+                      <div className="space-y-1 text-sm">
+                        <p className="text-gray-600">
+                          <span className="text-gray-900 font-semibold">@{order.username}</span> • {order.package_name}
+                        </p>
+                        <p className="text-gray-500">UID: {order.player_uid || 'N/A'}</p>
+                        <p className="text-gray-500">{formatDate(order.created_at)}</p>
+                      </div>
                     </div>
-                    <div className="space-y-1 text-sm">
-                      <p className="text-gray-400">
-                        <span className="text-white">@{order.username}</span> • {order.package_name}
-                      </p>
-                      <p className="text-gray-400">UID: {order.player_uid}</p>
-                      <p className="text-gray-400">{formatDate(order.created_at)}</p>
-                    </div>
-                  </div>
 
-                  <div className="text-right">
-                    <p className="text-2xl font-bold text-primary">₹{order.amount}</p>
-                    {order.wallet_used > 0 && (
-                      <p className="text-xs text-success">Wallet: -₹{order.wallet_used}</p>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-primary">₹{order.locked_price?.toFixed(2) || '0.00'}</p>
+                      {order.wallet_used > 0 && (
+                        <p className="text-xs text-green-600">Wallet: -₹{order.wallet_used?.toFixed(2)}</p>
+                      )}
+                    </div>
+
+                    {(order.status === 'failed' || order.status === 'manual_review' || order.status === 'invalid_uid') && (
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => handleRetry(order.id)}
+                          data-testid={`retry-${order.id}`}
+                          size="sm"
+                          className="bg-blue-100 text-blue-700 hover:bg-blue-200"
+                        >
+                          <RefreshCw className="w-4 h-4 mr-1" />
+                          Retry
+                        </Button>
+                        <Button
+                          onClick={() => handleMarkSuccess(order.id)}
+                          data-testid={`complete-${order.id}`}
+                          size="sm"
+                          className="bg-green-100 text-green-700 hover:bg-green-200"
+                        >
+                          <CheckCircle className="w-4 h-4 mr-1" />
+                          Mark Success
+                        </Button>
+                      </div>
                     )}
                   </div>
-
-                  {(order.status === 'failed' || order.status === 'manual_review') && (
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => handleRetry(order.id)}
-                        data-testid={`retry-${order.id}`}
-                        size="sm"
-                        className="bg-info/20 text-info hover:bg-info/30"
-                      >
-                        Retry
-                      </Button>
-                      <Button
-                        onClick={() => handleCompleteManual(order.id)}
-                        data-testid={`complete-${order.id}`}
-                        size="sm"
-                        className="bg-success/20 text-success hover:bg-success/30"
-                      >
-                        Complete
-                      </Button>
-                    </div>
-                  )}
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
 
       {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 bg-card/80 backdrop-blur-xl border-t border-white/5 z-20">
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-20 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-3 flex justify-around">
           <button
             onClick={() => navigate('/admin/dashboard')}
             data-testid="nav-dashboard"
-            className="flex flex-col items-center gap-1 text-gray-400 hover:text-white transition-colors"
+            className="flex flex-col items-center gap-1 text-gray-500 hover:text-primary transition-colors"
           >
             <LayoutDashboard className="w-5 h-5" />
             <span className="text-xs">Dashboard</span>
           </button>
           <button
             data-testid="nav-orders"
-            className="flex flex-col items-center gap-1 text-secondary"
+            className="flex flex-col items-center gap-1 text-primary"
           >
             <Package className="w-5 h-5" />
             <span className="text-xs font-medium">Orders</span>
@@ -250,7 +258,7 @@ const AdminOrders = () => {
           <button
             onClick={() => navigate('/admin/review')}
             data-testid="nav-review"
-            className="flex flex-col items-center gap-1 text-gray-400 hover:text-white transition-colors"
+            className="flex flex-col items-center gap-1 text-gray-500 hover:text-primary transition-colors"
           >
             <AlertTriangle className="w-5 h-5" />
             <span className="text-xs">Review</span>
@@ -258,7 +266,7 @@ const AdminOrders = () => {
           <button
             onClick={() => navigate('/admin/payments')}
             data-testid="nav-payments"
-            className="flex flex-col items-center gap-1 text-gray-400 hover:text-white transition-colors"
+            className="flex flex-col items-center gap-1 text-gray-500 hover:text-primary transition-colors"
           >
             <Inbox className="w-5 h-5" />
             <span className="text-xs">Payments</span>
