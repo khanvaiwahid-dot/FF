@@ -64,7 +64,7 @@ keytool -genkey -v -keystore my-release-key.jks -keyalg RSA -keysize 2048 -valid
 ## Setup
 
 1. Open the DiamondStore SMS app
-2. Enter your server URL (e.g., `https://garena-credits.preview.emergentagent.com`)
+2. Enter your server URL (e.g., `https://airflow-tracker-1.preview.emergentagent.com`)
 3. Tap "Save"
 4. Tap "Test Connection" to verify
 5. Enable "SMS Forwarding" switch
