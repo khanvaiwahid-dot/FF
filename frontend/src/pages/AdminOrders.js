@@ -87,9 +87,12 @@ const AdminOrders = () => {
       duplicate_payment: { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100', label: 'Duplicate' },
       expired: { icon: Clock, color: 'text-gray-600', bg: 'bg-gray-100', label: 'Expired' },
       invalid_uid: { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100', label: 'Invalid UID' },
-      refunded: { icon: CheckCircle, color: 'text-gray-600', bg: 'bg-gray-100', label: 'Refunded' }
+      refunded: { icon: CheckCircle, color: 'text-gray-600', bg: 'bg-gray-100', label: 'Refunded' },
+      // Legacy statuses for backward compatibility
+      wallet_partial_paid: { icon: Clock, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Partial Paid' },
+      wallet_fully_paid: { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100', label: 'Fully Paid' }
     };
-    return configs[status] || { icon: Clock, color: 'text-gray-600', bg: 'bg-gray-100', label: status };
+    return configs[status] || { icon: Clock, color: 'text-gray-600', bg: 'bg-gray-100', label: status?.replace('_', ' ') || 'Unknown' };
   };
 
   const formatDate = (dateString) => {
