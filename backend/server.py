@@ -807,32 +807,33 @@ async def try_match_sms_to_orders(sms_doc: dict):
 # ===== AUTHENTICATION ENDPOINTS =====
 
 @api_router.post("/auth/signup", response_model=TokenResponse)
-async def signup(request: SignupRequest):
+@limiter.limit("5/minute")  # Rate limit: 5 signups per minute per IP
+async def signup(request: Request, signup_data: SignupRequest):
     # Validate username
-    if len(request.username) < 3:
+    if len(signup_data.username) < 3:
         raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
     
-    existing = await db.users.find_one({"username": request.username})
+    existing = await db.users.find_one({"username": signup_data.username})
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
     
-    if request.email:
-        existing_email = await db.users.find_one({"email": request.email})
+    if signup_data.email:
+        existing_email = await db.users.find_one({"email": signup_data.email})
         if existing_email:
             raise HTTPException(status_code=400, detail="Email already registered")
     
-    if request.phone:
-        existing_phone = await db.users.find_one({"phone": request.phone})
+    if signup_data.phone:
+        existing_phone = await db.users.find_one({"phone": signup_data.phone})
         if existing_phone:
             raise HTTPException(status_code=400, detail="Phone already registered")
     
     user_id = str(uuid.uuid4())
     user_doc = {
         "id": user_id,
-        "username": request.username,
-        "email": request.email,
-        "phone": request.phone,
-        "password_hash": hash_password(request.password),
+        "username": signup_data.username,
+        "email": signup_data.email,
+        "phone": signup_data.phone,
+        "password_hash": hash_password(signup_data.password),
         "wallet_balance_paisa": 0,
         "blocked": False,
         "created_at": datetime.now(timezone.utc).isoformat()
@@ -840,17 +841,18 @@ async def signup(request: SignupRequest):
     
     await db.users.insert_one(user_doc)
     
-    token = create_access_token({"sub": user_id, "type": "user", "username": request.username})
+    token = create_access_token({"sub": user_id, "type": "user", "username": signup_data.username})
     
     return TokenResponse(
         token=token,
         user_type="user",
-        username=request.username,
+        username=signup_data.username,
         wallet_balance=0.0
     )
 
 @api_router.post("/auth/login", response_model=TokenResponse)
-async def login(request: LoginRequest):
+@limiter.limit("10/minute")  # Rate limit: 10 login attempts per minute per IP
+async def login(request: Request, login_data: LoginRequest):
     user = await db.users.find_one({
         "$or": [
             {"username": request.identifier},
