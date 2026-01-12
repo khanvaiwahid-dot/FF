@@ -796,7 +796,10 @@ async def process_payment(order: dict, payment_amount_paisa: int, rrn: str = Non
     return ("paid", credit_to_wallet, "Payment processed successfully")
 
 async def add_to_queue(order_id: str):
-    """Add order to automation queue"""
+    """
+    Add order to automation queue.
+    Checks auto_topup setting - if disabled, routes to manual_pending.
+    """
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         return
@@ -812,6 +815,21 @@ async def add_to_queue(order_id: str):
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }}
         )
+        return
+    
+    # Check if auto_topup is enabled
+    settings = await get_system_settings()
+    if not settings.get("auto_topup", False):
+        # Route to manual_pending - requires manual processing
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "status": "manual_pending",
+                "manual_pending_reason": "auto_topup_disabled",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        logger.info(f"Order {order_id} routed to manual_pending (auto_topup disabled)")
         return
     
     await db.orders.update_one(
