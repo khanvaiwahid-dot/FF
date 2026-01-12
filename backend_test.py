@@ -590,6 +590,12 @@ class FreeFireDiamondAPITester:
         self.test_wallet_topup_flow()
         self.test_sms_simulation()
         self.test_admin_endpoints()
+        
+        # NEW: Test Admin Wallet Management Features
+        self.test_admin_wallet_management()
+        self.test_admin_action_logs()
+        self.test_user_wallet_verification()
+        
         self.test_error_handling()
         
         # Print summary
