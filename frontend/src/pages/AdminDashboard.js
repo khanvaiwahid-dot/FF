@@ -82,6 +82,17 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleRetryOrder = async (orderId) => {
+    try {
+      await axios.post(`${API}/admin/orders/${orderId}/retry`);
+      toast.success('Order queued for retry');
+      fetchAutomationStatus();
+      fetchDashboardStats();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to retry order');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
