@@ -2115,11 +2115,12 @@ async def admin_wallet_recharge(user_id: str, request: AdminWalletRechargeReques
 @api_router.post("/admin/users/{user_id}/wallet/redeem")
 async def admin_wallet_redeem(user_id: str, request: AdminWalletRedeemRequest, user_data: dict = Depends(get_current_admin)):
     """
-    Admin manually redeems (deducts) from user wallet.
-    Creates wallet transaction (negative), order record, and audit log.
+    Admin manually redeems (debits) from user wallet.
+    Creates wallet transaction (type=debit, source=admin), order record, and audit log.
+    wallet_load orders NEVER trigger automation.
     Rules:
-    - Cannot deduct more than current wallet balance
-    - Single-action limit (configurable, default ₹5000)
+    - amount_paisa <= wallet.balance
+    - amount_paisa <= REDEEM_LIMIT (default ₹5000)
     """
     # Validate user exists
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
@@ -2132,14 +2133,14 @@ async def admin_wallet_redeem(user_id: str, request: AdminWalletRedeemRequest, u
     
     old_balance = user.get("wallet_balance_paisa", 0)
     
-    # Check single-action limit
+    # Check single-action limit (configurable, default ₹5000 = 500000 paisa)
     if request.amount_paisa > ADMIN_REDEEM_SINGLE_LIMIT_PAISA:
         raise HTTPException(
             status_code=400, 
             detail=f"Single redemption cannot exceed ₹{paisa_to_rupees(ADMIN_REDEEM_SINGLE_LIMIT_PAISA):.2f}"
         )
     
-    # Check sufficient balance
+    # Check sufficient balance (amount_paisa <= wallet.balance)
     if request.amount_paisa > old_balance:
         raise HTTPException(
             status_code=400, 
@@ -2150,17 +2151,18 @@ async def admin_wallet_redeem(user_id: str, request: AdminWalletRedeemRequest, u
     new_balance = old_balance - request.amount_paisa
     now = datetime.now(timezone.utc).isoformat()
     
-    # 1. Update user wallet balance
+    # 1. Update user wallet balance IMMEDIATELY
     await db.users.update_one(
         {"id": user_id},
         {"$set": {"wallet_balance_paisa": new_balance}}
     )
     
-    # 2. Create wallet transaction (negative amount)
+    # 2. Create wallet transaction (type=debit, source=admin)
     wallet_tx = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
-        "type": "admin_redeem",
+        "type": "debit",
+        "source": "admin",
         "amount_paisa": -request.amount_paisa,  # Negative for deduction
         "order_id": order_id,
         "balance_before_paisa": old_balance,
@@ -2172,17 +2174,17 @@ async def admin_wallet_redeem(user_id: str, request: AdminWalletRedeemRequest, u
     }
     await db.wallet_transactions.insert_one(wallet_tx)
     
-    # 3. Create order record for traceability
+    # 3. Create wallet_load order record (NO UID, NO product validation, NO automation)
     order_doc = {
         "id": order_id,
-        "order_type": "wallet_load",
+        "order_type": "wallet_load",  # NEVER triggers automation
         "user_id": user_id,
         "username": user["username"],
-        "player_uid": None,
-        "server": None,
-        "package_id": None,
+        "player_uid": None,  # NULL - not required for wallet_load
+        "server": None,  # NULL - not required for wallet_load
+        "package_id": None,  # NULL - not required for wallet_load
         "package_name": "Admin Wallet Redemption",
-        "package_type": "admin_redeem",
+        "package_type": "wallet_load",
         "amount": None,
         "load_amount_paisa": -request.amount_paisa,  # Negative for deduction
         "locked_price_paisa": request.amount_paisa,
@@ -2198,11 +2200,11 @@ async def admin_wallet_redeem(user_id: str, request: AdminWalletRedeemRequest, u
         "raw_message": None,
         "sms_fingerprint": f"ADMIN_REDEEM_{order_id}",
         "overpayment_paisa": 0,
-        "status": "success",
+        "status": "success",  # Immediately success - no automation
         "automation_state": None,
         "retry_count": 0,
         "notes": f"Admin redemption by {user_data['username']}: {request.reason}",
-        "admin_action": "redeem",
+        "created_by": "admin",
         "admin_id": user_data["user_id"],
         "admin_username": user_data["username"],
         "created_at": now,
@@ -2211,20 +2213,19 @@ async def admin_wallet_redeem(user_id: str, request: AdminWalletRedeemRequest, u
     }
     await db.orders.insert_one(order_doc)
     
-    # 4. Create admin action audit log
+    # 4. Create admin action audit log (MANDATORY)
     await db.admin_actions.insert_one({
         "id": str(uuid.uuid4()),
         "admin_id": user_data["user_id"],
         "admin_username": user_data["username"],
         "action_type": "wallet_redeem",
-        "target_id": user_id,
+        "target_user_id": user_id,
         "target_username": user["username"],
         "order_id": order_id,
         "amount_paisa": request.amount_paisa,
         "reason": request.reason,
         "balance_before_paisa": old_balance,
         "balance_after_paisa": new_balance,
-        "details": f"Redeemed ₹{paisa_to_rupees(request.amount_paisa):.2f} from {user['username']}'s wallet. Reason: {request.reason}",
         "created_at": now
     })
     
