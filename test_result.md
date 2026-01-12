@@ -101,3 +101,105 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  Implement Phase 1 (Admin Wallet Recharge & Redeem) and Phase 2 (Admin Action Audit Log UI)
+  - Admin can recharge (credit) user wallets with mandatory reason
+  - Admin can redeem (deduct) from user wallets with mandatory reason and limits
+  - Every wallet action creates audit log, wallet transaction, and order record
+  - Admin Audit Logs page with filters by admin, action type, date range
+
+backend:
+  - task: "Admin Wallet Recharge API"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented POST /api/admin/users/{user_id}/wallet/recharge endpoint with wallet transaction, order record, and audit log creation"
+
+  - task: "Admin Wallet Redeem API"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented POST /api/admin/users/{user_id}/wallet/redeem endpoint with balance check, single-action limit (₹5000), wallet transaction, order record, and audit log"
+
+  - task: "Admin Action Logs API"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented GET /api/admin/action-logs with filters (admin_username, action_type, start_date, end_date) and helper endpoints for filter options"
+
+frontend:
+  - task: "Admin Users - Recharge/Redeem Buttons"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/admin/AdminUsers.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added Recharge (green +) and Redeem (red -) buttons next to wallet balance with modal dialogs for amount and reason input"
+
+  - task: "Admin Audit Logs Page"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/admin/AdminAuditLogs.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Created AdminAuditLogs.js page with filters panel (admin, action type, date range), table view with color-coded actions (red for destructive, green for positive)"
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Admin Wallet Recharge API"
+    - "Admin Wallet Redeem API"
+    - "Admin Action Logs API"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Implemented Phase 1 and Phase 2 features:
+      1. Admin Wallet Recharge - POST /api/admin/users/{user_id}/wallet/recharge
+      2. Admin Wallet Redeem - POST /api/admin/users/{user_id}/wallet/redeem  
+      3. Admin Action Logs - GET /api/admin/action-logs with filters
+      4. Frontend: Recharge/Redeem buttons in AdminUsers.js
+      5. Frontend: New AdminAuditLogs.js page with filters
+      
+      Please test the backend APIs:
+      - Recharge a user's wallet (amount in paisa, reason required min 5 chars)
+      - Redeem from wallet (check balance limit, single-action limit ₹5000)
+      - Verify audit logs are created with all required fields
+      - Test action-logs endpoint with filters
+      
+      Test credentials: admin/admin123, testclient/test123
