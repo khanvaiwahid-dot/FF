@@ -469,6 +469,129 @@ async def add_to_queue(order_id: str):
         }}
     )
 
+async def process_automation_order(order_id: str):
+    """
+    Process a queued order through Garena automation
+    This runs in a background task
+    """
+    from garena_automation import run_automation_for_order
+    
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        logger.error(f"Order {order_id} not found for automation")
+        return
+    
+    if order.get("status") != "queued":
+        logger.warning(f"Order {order_id} status is {order.get('status')}, skipping automation")
+        return
+    
+    # Update status to processing
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {
+            "status": "processing",
+            "automation_state": "started",
+            "processing_started_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Get active Garena account
+    garena_acc = await db.garena_accounts.find_one({"active": True}, {"_id": 0})
+    if not garena_acc:
+        logger.error("No active Garena account found")
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "status": "manual_review",
+                "automation_state": "no_garena_account",
+                "suspicious_reason": "No active Garena account configured",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        return
+    
+    try:
+        # Decrypt credentials
+        garena_email = garena_acc.get("email", "")
+        garena_password = decrypt_data(garena_acc.get("password", ""))
+        garena_pin = decrypt_data(garena_acc.get("pin", ""))
+        
+        # Run automation
+        success, status_msg = await run_automation_for_order(
+            order=order,
+            garena_email=garena_email,
+            garena_password=garena_password,
+            garena_pin=garena_pin,
+            headless=True
+        )
+        
+        if success:
+            # Mark order as success
+            await db.orders.update_one(
+                {"id": order_id},
+                {"$set": {
+                    "status": "success",
+                    "automation_state": "completed",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }}
+            )
+            logger.info(f"Order {order_id} automation completed successfully")
+        else:
+            # Determine failure handling
+            retry_count = order.get("retry_count", 0) + 1
+            
+            if status_msg == "invalid_uid":
+                # Invalid UID - don't retry
+                await db.orders.update_one(
+                    {"id": order_id},
+                    {"$set": {
+                        "status": "invalid_uid",
+                        "automation_state": status_msg,
+                        "suspicious_reason": "Player UID not found in Free Fire",
+                        "retry_count": retry_count,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }}
+                )
+            elif retry_count < 3:
+                # Retry later
+                await db.orders.update_one(
+                    {"id": order_id},
+                    {"$set": {
+                        "status": "queued",
+                        "automation_state": f"retry_{retry_count}",
+                        "retry_count": retry_count,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }}
+                )
+            else:
+                # Max retries reached - manual review
+                await db.orders.update_one(
+                    {"id": order_id},
+                    {"$set": {
+                        "status": "manual_review",
+                        "automation_state": status_msg,
+                        "suspicious_reason": f"Automation failed after {retry_count} attempts: {status_msg}",
+                        "retry_count": retry_count,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }}
+                )
+            
+            logger.error(f"Order {order_id} automation failed: {status_msg}")
+            
+    except Exception as e:
+        logger.error(f"Automation error for order {order_id}: {str(e)}")
+        await db.orders.update_one(
+            {"id": order_id},
+            {"$set": {
+                "status": "manual_review",
+                "automation_state": f"error: {str(e)[:100]}",
+                "suspicious_reason": f"Automation exception: {str(e)[:200]}",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+
 async def try_match_sms_to_orders(sms_doc: dict):
     """Try to match an SMS to pending orders"""
     amount_paisa = sms_doc.get("amount_paisa")
