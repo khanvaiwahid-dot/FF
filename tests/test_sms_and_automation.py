@@ -156,13 +156,28 @@ class TestDuplicateSMSRejection:
 class TestSMSAutoMatching:
     """Test SMS auto-matching to pending orders"""
     
-    def test_sms_auto_matches_to_pending_order(self, user_token, package_id):
+    def test_sms_auto_matches_to_pending_order(self, admin_token):
         """Test SMS auto-matches to pending order with matching last3digits"""
-        user_headers = {"Authorization": f"Bearer {user_token}"}
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
         unique_id = str(uuid.uuid4())[:8]
         last3 = unique_id[:3]  # Use first 3 chars as last3digits
         
-        # Create order
+        # Create a new test user to avoid wallet balance issues
+        test_username = f"smstest_{unique_id}"
+        response = requests.post(f"{BASE_URL}/api/auth/signup", json={
+            "username": test_username,
+            "password": "test123"
+        })
+        assert response.status_code == 200
+        user_token = response.json()["token"]
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        
+        # Get package
+        response = requests.get(f"{BASE_URL}/api/packages/list")
+        packages = response.json()
+        package_id = packages[0]["id"]
+        
+        # Create order (new user has 0 wallet balance)
         response = requests.post(f"{BASE_URL}/api/orders/create", headers=user_headers, json={
             "player_uid": "33333333",
             "package_id": package_id
@@ -174,6 +189,9 @@ class TestSMSAutoMatching:
         response = requests.get(f"{BASE_URL}/api/orders/{order_id}", headers=user_headers)
         order = response.json()
         payment_required = order.get("payment_required", 1.99)
+        
+        # Order should be pending_payment for new user with 0 wallet
+        assert order["status"] == "pending_payment", f"New user order should be pending_payment, got {order['status']}"
         
         # Submit payment verification with specific last3digits
         response = requests.post(f"{BASE_URL}/api/orders/verify-payment", headers=user_headers, json={
