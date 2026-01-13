@@ -5,7 +5,7 @@ import json
 
 class AdminWalletTester:
     def __init__(self):
-        self.base_url = "https://airflow-tracker-1.preview.emergentagent.com"
+        self.base_url = "https://payment-system-82.preview.emergentagent.com"
         self.api_url = f"{self.base_url}/api"
         self.admin_token = None
         self.testclient_token = None

@@ -1,193 +1,167 @@
 <analysis>**original_problem_statement:**
-The user has provided a comprehensive audit and refactoring request for the Nex-Store-main (Free Fire top-up) project. The goal is to audit, fix, and clean up the entire system (backend + frontend) to close all loopholes and align it with a detailed set of business logic requirements.
+The user initially provided a vague request to Pull the respiratory. This was clarified into a multi-phase project.
 
 **PRODUCT REQUIREMENTS:**
-
-1.  **Unified Order System:** All transactions (product top-ups and wallet loads) must be visible in a single, clean Orders system. Wallet loads must create an  record with an  of wallet_load.
-2.  **Wallet & Payment Safety:**
-    *   All monetary values must be stored and processed as integers (paisa/cents) to avoid floating-point errors.
-    *   Overpayment logic must be robust: credit the exact extra amount to the user's wallet.
-    *   Add sanity checks for unusually large overpayments, flagging them for manual review instead of auto-crediting.
-3.  **UI/UX Overhaul:**
-    *   Fix all UI readability issues, specifically white text on white/light backgrounds.
-    *   Standardize the entire application design to a strict Garena theme (white/orange/red).
-    *   Update user navigation to include Top-Up, a unified Orders page, and Wallet.
-4.  **Admin Capabilities:**
-    *   Admin must be able to review, edit, and manually fulfill any order.
-    *   Implement a manual review queue for suspicious transactions, failed automation, etc.
-    *   Admin must be able to manage Garena automation accounts (add/edit/delete/secure PIN).
-5.  **Robust Order States & Automation:**
-    *   Implement a comprehensive set of order statuses (, , , , , , , , , , ).
-    *   Handle automation failures gracefully (e.g., invalid UID, Garena site changes).
-    *   Ensure automation logs out of previous sessions to prevent top-ups to wrong accounts.
-6.  **Improved Payment Matching:**
-    *   Enforce payment used once by creating a unique index on the payment RRN and a  fingerprint of the raw SMS message.
-    *   Implement logic to auto-match pre-existing unmatched SMS messages to newly created orders.
-    *   Flag SMS messages that remain unmatched for over an hour as suspicious.
-7.  **Payment Rounding Policy:**
-    *   Implement a new rounding policy: round up to the nearest 1 (<100), nearest 5 (100-500), or nearest 10 (>500).
+1.  **Phase 1: Admin Wallet Management:** Implement features for administrators to manually recharge (credit) and redeem (debit) user wallet balances. This must include mandatory reason/note fields for every transaction and generate corresponding order records () and audit logs. These  orders must never trigger the top-up automation.
+2.  **Phase 2: Admin Audit Log UI:** Create a user interface in the admin panel for viewing and filtering all administrative actions.
+3.  **Garena Automation:** Debug the existing diamond top-up automation, which was failing. The user provided credentials for a real Garena account to test the flow.
+4.  **Admin Notifications:** Add UI panels to the admin dashboard to display the status of the automation queue and any orders that have failed or require manual review.
+5.  **Android SMS Forwarder:** Build a complete Android application that can read incoming SMS payment notifications, parse them for key details (amount, RRN, etc.), and forward them to a secure backend API (). The app must handle offline queuing, retries, and prevent duplicate submissions.
+6.  **Production-Ready System Logic:** Implement a comprehensive set of backend rules for system-wide settings, role-based access control (USER, STAFF, ADMIN), advanced payment matching logic, an automation circuit breaker to prevent repeated failures, and dedicated endpoints for manual administrative operations.
 
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack application with a FastAPI backend and a React frontend. The agent has just begun a massive backend refactoring process based on a new, comprehensive set of user requirements. A new, empty file  has been created with the intention of replacing the monolith . The frontend has undergone several UI fixes but still has significant readability issues and requires further alignment with the new backend APIs and user requirements. An Android SMS forwarder app project has been scaffolded but is not integrated or tested. The application is currently in a non-functional, transitional state pending the completion of the refactor.
+A full-stack Free Fire diamond top-up platform with a FastAPI backend and React frontend.
+-   **Backend:** Includes user/admin authentication, a wallet system, order processing, and Playwright-based Garena automation (currently non-functional). It has endpoints for admin wallet management, SMS ingestion, and the newly implemented production logic (system settings, RBAC, manual ops).
+-   **Frontend:** Features user and admin dashboards. The admin UI includes panels for user management (with recharge/redeem buttons), an audit log viewer, and new dashboard widgets for monitoring automation status and issues.
+-   **Android App:** The complete source code for the SMS Forwarder Android app exists in , ready to be built.
 
 **Last working item**:
-- **Last item agent was working:** The agent initiated a complete backend overhaul as requested by the user. It created a new file, , to house the refactored code that will address all new requirements, including unified orders, integer-based currency, and improved payment logic. The final action was to begin replacing the old server file with the new one.
-- **Status:** IN PROGRESS
-- **Agent Testing Done:** N
-- **Which testing method agent to use?** both
-- **User Testing Done:** N
+-   **Last item agent was working:** Implementing the comprehensive production-ready system logic as requested by the user. This was a major backend overhaul introducing , Role-Based Access Control (RBAC), a circuit breaker for automation, advanced payment matching rules, and new endpoints for manual operations.
+-   **Status:** IN PROGRESS
+-   **Agent Testing Done:** N
+-   **Which testing method agent to use?** backend testing agent
+-   **User Testing Done:** N
 
 **All Pending/In progress Issue list**:
-- **Issue 1:** The entire application requires a comprehensive audit and refactor to meet the new, detailed user requirements. (PRIORITY: P0)
+-   **Issue 1:** Garena automation is blocked by DataDome bot protection. (Priority: P1)
+-   **Issue 2:** The Android SMS Forwarder APK needs to be built. (Priority: P2)
 
 **Issues Detail:**
-- **Issue 1:**
-    - **Description:** The current codebase does not meet the user's detailed requirements for order management, payment safety, UI consistency, and admin functionality. Major architectural changes are needed.
-    - **Attempted fixes:** The agent started the refactor by creating a new backend file .
-    - **Next debug checklist:**
-        1.  Implement all backend logic from the user's requirements () in . This includes:
-            - Using integers for all currency values (/).
-            - Creating a unified  collection with an  field.
-            - Implementing the new payment rounding policy.
-            - Adding robust payment matching with RRN and SMS fingerprint uniqueness.
-            - Defining all new order statuses and their transition logic.
-            - Adding all required admin endpoints (dashboard, order management, review queues).
-        2.  Replace the old  with the new file and ensure the backend service runs correctly.
-        3.  Refactor the entire frontend to fix UI readability issues, align with the new Garena color scheme, and integrate with the new backend APIs.
-        4.  Specifically target and fix , , , and  pages.
-    - **Why fix this issue and what will be achieved with the fix?** This will transform the application from a prototype into a robust, secure, and user-friendly platform that aligns with the core business logic, closing security loopholes and improving operational efficiency.
-    - **Status:** IN PROGRESS
-    - **Is recurring issue?** N
-    - **Should Test frontend/backend/both after fix?** both
-    - **Blocked on other issue:** None. This is the primary task.
+-   **Issue 1:**
+    -   **Description:** The Playwright automation script is being detected and blocked by Garena's DataDome bot protection on the SSO login page, preventing automated top-ups. This is the root cause of orders being stuck in the queued state.
+    -   **Attempted fixes:** The agent tried enabling stealth settings for Playwright and using a non-headless browser, but DataDome still detected the automation.
+    -   **Next debug checklist:**
+        -   As a workaround, a Mark as Success button has been added for admins to complete orders manually.
+        -   The underlying issue requires exploring more advanced anti-detection techniques or investigating if Garena provides an official API, which is beyond simple script fixes.
+    -   **Why fix this issue and what will be achieved with the fix?** Fixing this will enable the core  feature of the platform.
+    -   **Status:** BLOCKED
+    -   **Is recurring issue?** Y
+    -   **Should Test backend/both after fix?** backend
+    -   **Blocked on other issue:** No. This is an external dependency issue.
+-   **Issue 2:**
+    -   **Description:** The agent has written the complete source code for the Android SMS Forwarder app, but the current development environment lacks the Android SDK and Java JDK required to compile the code into an APK file.
+    -   **Attempted fixes:** N/A (Environment limitation).
+    -   **Next debug checklist:** The user has been informed and presented with options: 1) Build the APK on their local machine using Android Studio, or 2) The agent can create a GitHub Actions workflow to automate the build process.
+    -   **Why fix this issue and what will be achieved with the fix?** This will produce the installable Android app required for the automated payment verification flow.
+    -   **Status:** BLOCKED
+    -   **Is recurring issue?** N
+    -   **Should Test backend/both after fix?** NA
+    -   **Blocked on other issue:** No.
 
 **In progress Task List**:
-- **Task 1:** Complete the backend refactoring. (PRIORITY: P0)
-  - **Where to resume:** Populate the empty  file with the completely refactored backend code according to the user's detailed requirements.
-  - **What will be achieved with this?** A stable, secure, and feature-complete backend API that serves as the foundation for the application.
-  - **Status:** IN PROGRESS
-  - **Should Test frontend/backend/both after fix?** Backend.
-  - **Blocked on something:** Nothing.
+-   **Task 1:** Test and Finalize the Production-Ready System Logic (Priority: P0)
+    -   **Where to resume:** The backend code for system settings, RBAC, the circuit breaker, and manual operations has been written and the server restarted. The immediate next step is to initialize the database with the new settings and roles, and then use the backend testing agent to thoroughly test all new endpoints and logic flows to ensure they work as specified and haven't introduced regressions.
+    -   **What will be achieved with this?** A robust, secure, and configurable backend that can support different user roles and handle operations with greater safety and control.
+    -   **Status:** IN PROGRESS
+    -   **Should Test backend/both after fix?** backend
+    -   **Blocked on something:** No.
 
 **Upcoming and Future Tasks**
-**Upcoming Tasks:**
-- **P0: Backend Implementation in :**
-    - **Data Model:** Convert all currency fields (, , etc.) to integers ().
-    - **Orders:** Unify  and  into a single  collection with an  field.
-    - **Payment Logic:** Implement the new rounding policy and robust overpayment handling.
-    - **Payment Matching:** Add  for uniqueness and logic to match pre-existing SMS messages.
-    - **Statuses:** Implement the full list of new order statuses (, , , etc.).
-    - **Admin API:** Create endpoints for the new admin dashboard analytics, order editing, and manual review queues.
-- **P1: Frontend Overhaul:**
-    - **UI Fixes:** Systematically remove all  on light backgrounds and standardize text colors to /.
-    - **API Integration:** Connect the frontend to the new  backend endpoints.
-    - **Pages:** Rebuild the , , and payment flow pages to align with the new unified order system and UI standards.
-- **P2: End-to-End Flow Testing:**
-    - Test the complete user journey: order creation -> SMS payment -> overpayment wallet credit -> successful automation.
-    - Test edge cases: invalid UID, suspicious payments, manual order fulfillment.
-
-**Future Tasks:**
-- **P3: Android SMS Forwarder Integration:**
-    - Provide a build script for the created Android app.
-    - Test the app's ability to forward SMS messages to the backend  endpoint.
+-   **Upcoming Tasks:**
+    -   **P0: Implement Frontend for Production Logic:**
+        -   Create a System Settings page for Admins to manage the new global settings.
+        -   Create Manual Operations pages for Staff/Admins to manage problematic orders and payments.
+        -   Update the user management UI to allow Admins to assign roles (USER, STAFF, ADMIN).
+-   **Future Tasks:**
+    -   **P2:** Refactor  by splitting the monolithic file into a  directory structure for better maintainability (as previously agreed with the user).
 
 **Completed work in this session**
-- **Backend Bug Fixes & Features:**
-    - Resolved a critical  that was blocking the backend from starting.
-    - Implemented payment logic for rounding prices and handling overpayments by crediting the user's wallet.
-    - Created an admin endpoint and UI () for manually inputting and matching payment SMS messages.
-    - Improved the SMS parsing regex to correctly extract phone digits.
-- **Frontend UI Overhaul:**
-    - Fixed a  build error.
-    - Applied a consistent Garena-style (white/orange/red) theme to , , , and  pages.
-    - Created a new  page with a detail view and added the corresponding backend endpoint.
-    - Fixed numerous UI readability issues (e.g., dark text on light backgrounds) on the , , and  pages.
-- **New Components:**
-    - Scaffolded a complete Android Studio project for an SMS forwarding application in .
-
-**Earlier issues found/mentioned but not fixed**
-- All previously identified issues are now encapsulated within the comprehensive audit and refactoring task requested by the user in . The entire application is considered unfixed relative to these new, detailed requirements.
+-   **Admin Wallet Management:** Implemented backend endpoints and frontend UI for admin to recharge/redeem user wallets, with mandatory reasons and audit logging (, ).
+-   **Admin Audit Log UI:** Built a new frontend page for viewing and filtering admin actions ().
+-   **Order Creation Bug Fix:** Resolved a critical MongoDB  error on  by implementing a sparse index and ensuring  values are omitted from documents.
+-   **Admin Dashboard Enhancements:** Added new UI panels to monitor the automation queue, view failed orders, and display a persistent notification about the Garena automation being blocked ().
+-   **Android SMS Forwarder App:** Created the secure backend API endpoint () and generated the complete, feature-rich source code for the Android application in .
 
 **Known issue recurrence from previous fork**
-- None.
+-   N/A
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
-- **Backend:** FastAPI, MongoDB (via Pymongo)
-- **Frontend:** React, Tailwind CSS
-- **Authentication:** JWT
-- **Automation:** Playwright with 
-- **Architecture:** The backend is moving from a single monolithic file to a refactored, more organized structure. A key change is the switch to integer-based currency for all financial calculations.
+-   **Frontend:** React 19, Tailwind CSS, Shadcn UI
+-   **Backend:** FastAPI, Pydantic, Motor (async MongoDB), APScheduler, Playwright
+-   **Database:** MongoDB
+-   **Architecture:** Full-stack application with a monolithic backend, a React frontend, and a separate native Android client.
 
 **key DB schema**
-*(Proposed changes based on user requirements)*
-- **users:** 
-- **orders:** 
-- **sms_messages:** 
-- **wallet_transactions:** 
+-   **users:** 
+-   **orders:** 
+-   **system_settings:** 
+-   **admin_actions:** 
+-   **sms_messages:** 
 
 **changes in tech stack**
-- None in the core web application. An auxiliary Android application project was created.
+-   None.
 
 **All files of reference**
-- : The new, empty file where the entire backend refactor must be implemented.
-- : The existing legacy backend code that needs to be replaced.
-- : The directory containing all frontend pages that require UI fixes and API integration updates.
-- : The directory containing the new Android SMS forwarder project.
+-   : The main monolithic backend file containing almost all business logic, models, and API routes. It was heavily modified in this session.
+-   : Contains the browser automation logic that is currently blocked by bot protection.
+-   : The main admin landing page, updated with new monitoring panels.
+-   : The directory containing the complete source code for the new Android app.
 
 **Areas that need refactoring**:
-- **Backend:** The entire  file must be rewritten into  to incorporate all new requirements, including integer currency, unified orders, and improved security checks.
-- **Frontend:** Nearly all pages require a UI audit to fix readability (white-on-white text) and design consistency issues. Pages handling orders and payments (, , , , ) need to be updated to work with the new backend APIs.
+-    is a monolithic file exceeding 3,500 lines. It contains all models, API routes, background job logic, and helper functions. A future task has been approved to refactor this into a more maintainable structure using FastAPI's .
 
 **key api endpoints**
-*(To be implemented in the refactor)*
-- : (GET) Unified endpoint to fetch both product and wallet orders for a user.
-- : (POST) Endpoint to create a  order.
-- : Endpoint to handle payment verification, overpayment crediting, and status updates.
-- : Full CRUD and filtering endpoints for admin order management.
-- : Endpoint to fetch items needing manual review.
-- : Endpoint for new sales and wallet analytics.
+-   **System & Manual Ops:**
+    -   
+    -   
+    -   
+-   **Admin Wallet:**
+    -   
+    -   
+-   **SMS Ingest:**
+    -   
+-   **Authentication:**
+    -    (returns role)
+    -   
 
 **Critical Info for New Agent**
-- **Single Source of Truth:** The user's message () is now the definitive product requirements document. Adhere to it strictly.
-- **Refactor First:** The immediate and highest priority task is to implement the full backend logic in the new  file. The application is non-functional until this is complete.
-- **Integer Currency:** The shift to integer-based currency (paisa/cents) for all financial data is a critical and non-negotiable architectural change.
-- **Phased Approach:** Complete the backend refactor first, ensure it's stable, and then proceed to the frontend overhaul. Do not attempt to do both simultaneously.
+-   **Test Production Logic First:** Your immediate priority is to test the newly implemented production-ready backend logic. This includes system settings, role permissions (Admin/Staff/User), the automation circuit breaker, and payment rules. This code is completely untested.
+-   **Garena Automation is BLOCKED:** Do not attempt to fix the Garena top-up automation. It is blocked by an advanced bot-detection service (DataDome). The user is aware, and a manual workaround (Mark as Success button) is in place.
+-   **Android APK Cannot Be Built:** The environment lacks the required SDK to build the Android app. Do not attempt to build it. The source code is complete and located in .
+-   **Backend is a Monolith:** All backend logic resides in . Be prepared to work within this large file.
 
 **documents and test reports created in this job**
-- 
-- 
--  and all other project files in that directory.
+-   
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User:** Asks to create the Android SMS forwarder app. (Agent created the full project structure).
-2.  **User:** Provides a massive, detailed audit and refactoring request for the entire application, outlining all required backend and frontend changes. This is the new master plan.
-3.  **User:** (Implicit approval to start the audit) The agent acknowledges the task and begins by exploring the codebase.
-4.  **Agent:** Starts the major refactor by creating .
-5.  **Agent:** Prepares to replace the old server file with the new one. This was the last action.
+1.  **User Request:** Implement a production-ready system logic. **Status: IN PROGRESS** (Backend code written, requires testing).
+2.  **User Question:** Can you create the APK yourself? **Status: COMPLETED** (Agent responded that it cannot).
+3.  **User Request:** Build the Android SMS forwarding app. **Status: COMPLETED** (Source code generated).
+4.  **User Feedback:** (Provided alternatives to blocked automation). **Status: ACKNOWLEDGED**.
+5.  **User Input:** Provided correct Garena credentials. **Status: COMPLETED** (Credentials updated).
+6.  **User Feedback:** (Acknowledged automation error). **Status: ACKNOWLEDGED**.
+7.  **User Request:** Add a notification space for automation issues. **Status: COMPLETED** (UI panel added).
+8.  **User Question:** Why is my order only queued? **Status: COMPLETED** (Agent investigated and identified the root cause).
+9.  **User Bug Report:** failed to create order. **Status: COMPLETED** (Agent fixed the database index issue).
+10. **User Request:** Provided strict logic for wallet management. **Status: COMPLETED** (Agent implemented the logic).
 
 **Project Health Check:**
-- **Broken/In-Refactor:** The backend is in a critical transitional state. A new, empty  has been created to replace the existing . The application is not functional and requires the refactor to be completed before any part of it can work.
+-   **Broken:**
+    -   Garena Automation ( feature): Non-functional due to external bot protection.
+-   **Mocked:**
+    -   None.
 
 **3rd Party Integrations**
-- **Playwright-stealth:** Used for Garena web automation.
+-   **Garena:** Integrated via Playwright for web automation. This integration is currently blocked.
+-   **MongoDB:** The primary database for the application.
 
 **Testing status**
-- **Testing agent used after significant changes:** YES (but before the latest major refactoring request).
-- **Troubleshoot agent used after agent stuck in loop:** NO.
-- **Test files created:**
-    - 
-    - 
-- **Known regressions:** The entire application is non-functional pending the completion of the backend refactor. The previously passed tests are no longer valid.
+-   **Testing agent used after significant changes:** YES
+-   **Troubleshoot agent used after agent stuck in loop:** NO
+-   **Test files created:** None. Testing was performed via ad-hoc  scripts.
+-   **Known regressions:** None known, but the last major change is untested.
 
 **Credentials to test flow:**
-- **Admin:**  /  (or )
-- **Client:**  / 
-- These are created by the  script.
+-   **Admin:**  / 
+-   **User:**  / 
+-   **Garena Account:**  /  (Note: This account is detected by Garena's bot protection).
+-   **SMS Forwarder Token:**  (found in ).
 
 **What agent forgot to execute**
-- The agent has just started the comprehensive refactoring task outlined by the user. The primary pending execution is to implement the entirety of the user's requirements from .</analysis>
+-   The agent has not yet created the frontend UI for the new production-level backend features, such as the System Settings page, the Manual Operations page, or the Role Management interface for users.
+-   When initializing the database, the agent did not create a user with the  role, which will be necessary to test the new staff-level permissions.</analysis>
